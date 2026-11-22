@@ -132,5 +132,5 @@ export async function referencesBriefing(): Promise<string> {
   const list = await listReferences();
   if (!list.length) return "";
   const lines = list.slice(0, 30).map((r) => `- ${r.id}: "${r.name}" (${(r.durationUs / 1e6).toFixed(0)} s${r.width && r.height ? `, ${r.width}x${r.height}` : ""})${r.note ? ` — ${r.note}` : ""}${r.missing ? " [file missing]" : ""} at ${r.path.replace(/\\/g, "/")}`);
-  return `Reference videos the owner keeps in the library, to point you at ("edit it like my reference", "match that intro"). Look at one with the library tool, action reference_frames:\n${lines.join("\n")}`;
+  return `Reference videos the owner keeps in the library, to point you at ("edit it like my reference", "match that intro"). They are files on this computer: study them however suits the question, with your own tools (ffprobe/ffmpeg for frames, scene changes, clips; your transcription for what is said and how fast) or the library tool's reference_frames for a quick look. Only read them: never change, move or delete a reference file, and put anything you make from one in your own scratch space.\n${lines.join("\n")}`;
 }

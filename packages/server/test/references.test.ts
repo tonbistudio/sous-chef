@@ -40,6 +40,7 @@ describe("reference videos", () => {
 
     await updateReference(ref.id, { name: "Intro style" });
     expect(await referencesBriefing()).toContain(`${ref.id}: "Intro style" (4 s, 180x320) — pacing`);
+    expect(await referencesBriefing()).toMatch(/never change, move or delete/);
 
     await removeReference(ref.id);
     expect(await listReferences()).toEqual([]);
