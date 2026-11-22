@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: transparent; font-family: "Segoe UI", Arial, sans-serif; }
+      #c { position: absolute; left: 0; right: 0; top: 340px; text-align: center; color: #fff; text-shadow: 0 6px 30px rgba(0,0,0,0.7); }
+      #num { font-size: 230px; font-weight: 800; color: {{color}}; line-height: 1; font-variant-numeric: tabular-nums; }
+      #lab { font-size: 64px; font-weight: 600; margin-top: 12px; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="{{duration}}" data-width="1920" data-height="1080">
+      <div id="c" class="clip" data-start="0" data-duration="{{duration}}" data-track-index="1"><div id="num">0</div><span id="suf" hidden>{{suffix}}</span><div id="lab">{{label}}</div></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const D = {{duration}};
+      const tl = gsap.timeline({ paused: true });
+      const target = {{value}};
+      const suffix = document.getElementById("suf").textContent;
+      const o = { v: 0 };
+      const whole = Number.isInteger(target);
+      tl.from("#c", { scale: 0.7, opacity: 0, duration: 0.4, ease: "back.out(1.6)" }, 0)
+        .to(o, { v: target, duration: Math.min(1.6, Math.max(0.6, D - 1.2)), ease: "power2.out",
+          onUpdate: () => { document.getElementById("num").textContent = (whole ? Math.round(o.v).toLocaleString("en-US") : o.v.toFixed(1)) + suffix; } }, 0.2)
+        .from("#lab", { y: 30, opacity: 0, duration: 0.4 }, 0.5)
+        .to("#c", { opacity: 0, scale: 0.9, duration: 0.3 }, Math.max(1.4, D - 0.35));
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

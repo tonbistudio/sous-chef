@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+*.log
+.sous-chef-dev/
+__pycache__/
+*.pyc
+.npmrc
+launcher/

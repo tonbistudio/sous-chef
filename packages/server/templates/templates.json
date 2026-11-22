@@ -1,0 +1,95 @@
+{
+ "lower-third": {
+  "description": "Lower third: a name or topic in the bottom-left corner. Params: title, subtitle, color.",
+  "defaults": {
+   "title": "Title",
+   "subtitle": "",
+   "color": "#e8a33d"
+  }
+ },
+ "callout": {
+  "description": "Callout: a short note with an accent edge, placed anywhere. Params: text, color, x, y (pixels of the top-left corner on a 1920x1080 frame).",
+  "defaults": {
+   "text": "Note",
+   "color": "#e8a33d",
+   "x": "1000",
+   "y": "180"
+  }
+ },
+ "title-card": {
+  "description": "Title card: a large centred title over a dark fade, for chapter breaks. Params: title, subtitle, color.",
+  "defaults": {
+   "title": "Chapter",
+   "subtitle": "",
+   "color": "#e8a33d"
+  }
+ },
+ "subscribe": {
+  "description": "Subscribe button: pops up, gets clicked, and the bell rings. Params: text, color, x, y (pixels of its middle).",
+  "defaults": {
+   "text": "Subscribe",
+   "color": "#e53935",
+   "x": "960",
+   "y": "900"
+  }
+ },
+ "highlight": {
+  "description": "Highlight box: a rounded outline draws itself around part of the screen, with a soft glow. Params: color, x, y, w, h (pixels on a 1920x1080 frame).",
+  "defaults": {
+   "color": "#e8a33d",
+   "x": "560",
+   "y": "300",
+   "w": "800",
+   "h": "420"
+  }
+ },
+ "arrow": {
+  "description": "Arrow: a curved arrow swoops in and points at a spot, with an optional label. Params: text, color, x, y (pixels of the arrow tip).",
+  "defaults": {
+   "text": "Look here",
+   "color": "#e8a33d",
+   "x": "960",
+   "y": "540"
+  }
+ },
+ "step": {
+  "description": "Step: a numbered badge with a line of text, for walkthroughs. Params: number, text, color.",
+  "defaults": {
+   "number": "1",
+   "text": "Open the settings",
+   "color": "#e8a33d"
+  }
+ },
+ "keys": {
+  "description": "Keyboard shortcut: keycaps that press down one after another, e.g. Ctrl + Shift + P. Params: keys (joined with +), color.",
+  "defaults": {
+   "keys": "Ctrl+Shift+P",
+   "color": "#e8a33d"
+  }
+ },
+ "counter": {
+  "description": "Counter: a big number that counts up to a value, with a label under it. Params: value, suffix, label, color.",
+  "defaults": {
+   "value": "100",
+   "suffix": "%",
+   "label": "Faster",
+   "color": "#e8a33d"
+  }
+ },
+ "quote": {
+  "description": "Quote: a large quotation with who said it, over a darkened picture. Params: text, author, color.",
+  "defaults": {
+   "text": "The best way to predict the future is to build it.",
+   "author": "",
+   "color": "#e8a33d"
+  }
+ },
+ "end-card": {
+  "description": "End card: a closing screen with a title and two boxes where YouTube end-screen videos go. Params: title, subtitle, color.",
+  "defaults": {
+   "title": "Thanks for watching",
+   "subtitle": "Watch next",
+   "color": "#e8a33d"
+  }
+ }
+}

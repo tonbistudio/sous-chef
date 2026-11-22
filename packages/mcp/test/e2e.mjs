@@ -1,0 +1,24 @@
+// End-to-end check of the bundled tools over real MCP stdio. Usage: node e2e.mjs <server.mjs> <take.mp4> <project dir>
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { writeFileSync } from "node:fs";
+const [bundle, take, dir] = process.argv.slice(2);
+const client = new Client({ name: "e2e", version: "0" });
+await client.connect(new StdioClientTransport({ command: process.execPath, args: [bundle], env: { ...process.env, SOUS_CHEF_BUNDLED: "1" } }));
+const call = async (name, args) => { const r = await client.callTool({ name, arguments: args }); const t = r.content.find((c) => c.type === "text")?.text; return { r, v: r.isError ? t : JSON.parse(t) }; };
+console.log("tools:", (await client.listTools()).tools.map((t) => t.name).join(", "));
+let t0 = Date.now(); const o = (await call("project", { action: "open", path: dir, create: true })).v;
+console.log("open (server auto-started):", o.projectId, "rev", o.revision, Date.now() - t0, "ms");
+const pid = o.projectId;
+let e = (await call("edit_apply", { project_id: pid, base_revision: o.revision, summary: "Import take", ops: [{ op: "media.add", media: { path: take, id: "m1" } }, { op: "clip.add", trackId: "main", mediaId: "m1", id: "c1" }] })).v;
+console.log("import:", "rev", e.revision, "length", e.durationAfter);
+e = (await call("edit_apply", { project_id: pid, base_revision: e.revision, summary: "Trim to 30 s and cut 10 to 12 s", ops: [{ op: "clip.trim", clipId: "c1", sourceOutUs: 30e6 }, { op: "timeline.cut", startUs: 10e6, endUs: 12e6 }] })).v;
+console.log("trim+cut:", "rev", e.revision, e.durationBefore, "->", e.durationAfter, "cuts", JSON.stringify(e.project.clips[0].cuts));
+const stale = await call("edit_apply", { project_id: pid, base_revision: 0, summary: "x", ops: [{ op: "timeline.split", atUs: 5e6 }] });
+console.log("stale:", stale.r.isError, stale.v.slice(0, 60));
+const f = await call("frame_get", { project_id: pid, timeline_us: 11e6, width: 640 });
+const img = f.r.content.find((c) => c.type === "image"); writeFileSync(process.env.SOUS_CHEF_HOME + "/frame.jpg", Buffer.from(img.data, "base64"));
+console.log("frame:", img.mimeType, Buffer.from(img.data, "base64").length, "bytes", JSON.stringify(f.v));
+const u = (await call("history", { project_id: pid, action: "undo" })).v;
+console.log("undo:", JSON.stringify(u.summary), "length", u.project.duration, "rev", u.revision);
+await client.close();

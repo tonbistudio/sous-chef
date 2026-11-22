@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: transparent; font-family: "Segoe UI", Arial, sans-serif; }
+      #c { position: absolute; left: {{x}}px; top: {{y}}px; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 22px; }
+      #btn { background: {{color}}; color: #fff; font-size: 46px; font-weight: 700; padding: 20px 46px; border-radius: 16px; box-shadow: 0 14px 40px rgba(0,0,0,0.45); letter-spacing: 0.5px; }
+      #btn { display: grid; } #b1, #b2 { grid-area: 1 / 1; text-align: center; } #b2 { opacity: 0; }
+      #bell { width: 88px; height: 88px; border-radius: 50%; background: #fff; display: grid; place-items: center; box-shadow: 0 14px 40px rgba(0,0,0,0.45); }
+      #bell svg { width: 50px; height: 50px; }
+      #cursor { position: absolute; left: 120px; top: 80px; width: 46px; height: 46px; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="{{duration}}" data-width="1920" data-height="1080">
+      <div id="c" class="clip" data-start="0" data-duration="{{duration}}" data-track-index="1"><div id="btn"><span id="b1">{{text}}</span><span id="b2">Subscribed</span></div><div id="bell"><svg viewBox="0 0 24 24"><path d="M12 22a2.5 2.5 0 0 0 2.4-2h-4.8a2.5 2.5 0 0 0 2.4 2Zm7-6V11a7 7 0 0 0-5.5-6.8V3a1.5 1.5 0 0 0-3 0v1.2A7 7 0 0 0 5 11v5l-2 2v1h18v-1Z" fill="#222"/></svg></div><svg id="cursor" viewBox="0 0 24 24"><path d="M4 2l15 9-7 1.6L9 20z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const D = {{duration}};
+      const tl = gsap.timeline({ paused: true });
+      tl.from("#c", { y: 120, opacity: 0, duration: 0.45, ease: "back.out(1.7)" }, 0)
+        .from("#cursor", { x: 260, y: 160, opacity: 0, duration: 0.6, ease: "power2.out" }, 0.5)
+        .to("#btn", { scale: 0.9, duration: 0.1, yoyo: true, repeat: 1 }, 1.15)
+        .to("#btn", { backgroundColor: "#606060", duration: 0.15 }, 1.25)
+        .to("#b1", { opacity: 0, duration: 0.12 }, 1.3)
+        .to("#b2", { opacity: 1, duration: 0.12 }, 1.3)
+        .to("#cursor", { x: 135, y: 0, duration: 0.45, ease: "power2.inOut" }, 1.5)
+        .to("#bell", { scale: 0.9, duration: 0.1, yoyo: true, repeat: 1 }, 1.95)
+        .to("#bell svg", { rotation: 18, duration: 0.08, yoyo: true, repeat: 7, transformOrigin: "50% 10%" }, 2.05)
+        .to("#c", { y: 120, opacity: 0, duration: 0.35, ease: "power2.in" }, Math.max(2.8, D - 0.4));
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

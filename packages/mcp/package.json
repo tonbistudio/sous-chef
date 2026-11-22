@@ -1,0 +1,15 @@
+{
+  "name": "@sous-chef/mcp",
+  "version": "1.0.0",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/main.js",
+  "bin": {
+    "sous-mcp": "./dist/main.js"
+  },
+  "dependencies": {
+    "@sous-chef/core": "1.0.0",
+    "@sous-chef/server": "1.0.0",
+    "@modelcontextprotocol/sdk": "^1.32.2"
+  }
+}

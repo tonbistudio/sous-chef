@@ -1,0 +1,17 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "sous_chef": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${PLUGIN_ROOT}/mcp/server.mjs"
+      ],
+      "env": {
+        "SOUS_CHEF_BUNDLED": "1",
+        "LOCALAPPDATA": "${LOCALAPPDATA}",
+        "SOUS_CHEF_HOME": "${SOUS_CHEF_HOME}"
+      }
+    }
+  }
+}

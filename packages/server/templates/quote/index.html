@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: transparent; font-family: "Segoe UI", Arial, sans-serif; }
+      #bg { position: absolute; inset: 0; background: rgba(8,10,14,0.72); }
+      #c { position: absolute; left: 260px; right: 260px; top: 50%; transform: translateY(-50%); color: #fff; }
+      #mark { font-size: 220px; line-height: 0.6; color: {{color}}; font-family: Georgia, serif; height: 110px; }
+      #q { font-size: 70px; font-weight: 600; line-height: 1.22; font-family: Georgia, serif; }
+      #a { margin-top: 36px; font-size: 40px; color: {{color}}; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="{{duration}}" data-width="1920" data-height="1080">
+      <div id="bg" class="clip" data-start="0" data-duration="{{duration}}" data-track-index="0"></div>
+      <div id="c" class="clip" data-start="0" data-duration="{{duration}}" data-track-index="1"><div id="mark">&ldquo;</div><div id="q">{{text}}</div><div id="a">{{author}}</div></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const D = {{duration}};
+      const tl = gsap.timeline({ paused: true });
+      const who = document.getElementById("a");
+      if (!who.textContent.trim()) gsap.set(who, { display: "none" }); else who.textContent = "— " + who.textContent;
+      tl.from("#bg", { opacity: 0, duration: 0.4 }, 0)
+        .from("#mark", { y: -40, opacity: 0, duration: 0.45, ease: "back.out(1.6)" }, 0.15)
+        .from("#q", { y: 40, opacity: 0, duration: 0.6, ease: "power3.out" }, 0.3)
+        .from("#a", { opacity: 0, duration: 0.4 }, 0.75)
+        .to(["#bg", "#c"], { opacity: 0, duration: 0.4 }, Math.max(1.5, D - 0.45));
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

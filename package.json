@@ -1,0 +1,28 @@
+{
+  "name": "sous-chef",
+  "private": true,
+  "version": "1.0.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "Sous Chef: a local, agent-driven video editor for screen-recorded YouTube videos.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -b",
+    "server": "node packages/server/dist/main.js",
+    "build": "tsc -b && npm run build -w @sous-chef/ui && npm run build -w @sous-chef/desktop && npm run build:plugin",
+    "desktop": "npm run start -w @sous-chef/desktop",
+    "build:plugin": "esbuild packages/mcp/dist/main.js --bundle --platform=node --format=esm --target=node20 --outfile=hermes-plugin/mcp/server.mjs --log-level=warning && esbuild packages/mcp/dist/tools.js --bundle --platform=node --format=esm --target=node20 --outfile=hermes-plugin/mcp/tools.tmp.mjs --log-level=warning && node -e \"require('fs').renameSync('hermes-plugin/mcp/tools.tmp.mjs','hermes-plugin/mcp/tools.mjs')\"",
+    "launcher": "node scripts/make-launcher.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "rcedit": "^5.0.2",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

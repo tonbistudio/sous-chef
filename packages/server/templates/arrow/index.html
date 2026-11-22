@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: transparent; font-family: "Segoe UI", Arial, sans-serif; }
+      #c { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
+      #g { position: absolute; left: calc({{x}}px - 300px); top: calc({{y}}px + 10px); width: 300px; height: 220px; overflow: visible; }
+      #label { position: absolute; left: calc({{x}}px - 300px); top: calc({{y}}px + 210px); transform: translateX(-60%); background: {{color}}; color: #111; font-size: 38px; font-weight: 700;
+               padding: 12px 26px; border-radius: 12px; white-space: nowrap; box-shadow: 0 12px 34px rgba(0,0,0,0.45); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="{{duration}}" data-width="1920" data-height="1080">
+      <div id="c" class="clip" data-start="0" data-duration="{{duration}}" data-track-index="1"><svg id="g" viewBox="0 0 300 220"><path id="p" d="M10 210 C 40 90, 150 40, 286 14" fill="none" stroke="{{color}}" stroke-width="12" stroke-linecap="round"/><path id="head" d="M248 4 L292 12 L262 44" fill="none" stroke="{{color}}" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/></svg><div id="label">{{text}}</div></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const D = {{duration}};
+      const tl = gsap.timeline({ paused: true });
+      const p = document.getElementById("p");
+      const L = p.getTotalLength();
+      gsap.set(p, { strokeDasharray: L, strokeDashoffset: L });
+      gsap.set("#head", { opacity: 0 });
+      tl.from("#label", { scale: 0.5, opacity: 0, duration: 0.35, ease: "back.out(2)" }, 0)
+        .to(p, { strokeDashoffset: 0, duration: 0.5, ease: "power2.out" }, 0.15)
+        .to("#head", { opacity: 1, duration: 0.1 }, 0.6)
+        .to("#g", { x: 8, y: -6, duration: 0.45, yoyo: true, repeat: Math.max(0, Math.floor((D - 1.4) / 0.45)), ease: "sine.inOut" }, 0.7)
+        .to(["#g", "#label"], { opacity: 0, duration: 0.3 }, Math.max(1, D - 0.35));
+      if (!document.getElementById("label").textContent.trim()) gsap.set("#label", { display: "none" });
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

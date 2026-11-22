@@ -1,0 +1,7 @@
+{
+  "name": "sous-chef",
+  "label": "Sous Chef",
+  "description": "Finds or starts the local Sous Chef edit server for the editor page.",
+  "version": "0.1.0",
+  "api": "plugin_api.py"
+}
