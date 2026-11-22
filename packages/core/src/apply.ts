@@ -913,6 +913,16 @@ function applyOp(p: Project, op: Op, by: Transaction["by"], opts: ApplyOptions):
 }
 
 /**
+ * A lane other than the main track goes away in the edit that takes its last clip, text or graphic off,
+ * so the timeline is just the main track unless something is on top. A lane added empty in an edit is
+ * kept (its clip may come in the next one); undo brings a removed lane back with its contents.
+ */
+function dropEmptiedLanes(before: Project, after: Project): void {
+  const had = new Map(before.tracks.map((t) => [t.id, t.items.length]));
+  after.tracks = after.tracks.filter((t) => t.kind === "main" || t.items.length > 0 || !had.get(t.id));
+}
+
+/**
  * Applies a transaction to a project. All ops succeed or none do. The input
  * project is not modified.
  */
@@ -938,6 +948,7 @@ export function applyTransaction(project: Project, tx: Transaction, opts: ApplyO
       throw err;
     }
   });
+  dropEmptiedLanes(project, draft);
   draft.revision = project.revision + 1;
   return { project: draft, forward: diff(project, draft), inverse: diff(draft, project), created };
 }

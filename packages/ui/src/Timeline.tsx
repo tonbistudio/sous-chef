@@ -632,6 +632,8 @@ export function Timeline({ editor }: { editor: Editor }) {
     }
   }
   const durationS = plan.durationUs / S;
+  // Lanes show only when something is in them or Hermes suggests something for them: by default the timeline is just the main track.
+  const showZoomLane = plan.camera.length > 0 || editor.proposals.some((p) => p.items.some((i) => i.kind === "zoom" && !editor.skipped.has(i.id)));
   // Room past the end, so a clip can be dragged out there.
   const width = Math.max((durationS + 30) * pps + PAD * 2, 300);
 
@@ -958,7 +960,7 @@ export function Timeline({ editor }: { editor: Editor }) {
               </span>
             ))}
           </div>
-          <div className="lane zoom-lane" aria-label="Zooms">
+          {showZoomLane && <div className="lane zoom-lane" aria-label="Zooms">
             <span className="lane-name">Zoom</span>
             {editor.proposals.flatMap((p) =>
               p.items.filter((i) => i.kind === "zoom" && !editor.skipped.has(i.id)).flatMap((i) =>
@@ -991,9 +993,9 @@ export function Timeline({ editor }: { editor: Editor }) {
                 </div>
               );
             })}
-          </div>
+          </div>}
           {plan.overlays.length > 0 && <OverlayLane editor={editor} pps={pps} onSnap={setSnapLine} />}
-          {project.tracks.filter((t) => t.kind === "video").map((t) => <TrackLane key={t.id} editor={editor} pps={pps} trackId={t.id} onSnap={setSnapLine} />)}
+          {project.tracks.filter((t) => t.kind === "video" && t.items.length > 0).map((t) => <TrackLane key={t.id} editor={editor} pps={pps} trackId={t.id} onSnap={setSnapLine} />)}
           <div className={"track main-track" + (dropLane === "main" ? " drop-target" : "")} data-track="main" style={{ height: TRACK_H }}>
             <TrackCanvas plan={plan} pid={editor.pid} prepared={editor.prepared} pps={pps} scroller={scroller} />
             {editor.clips.map((clip) => {
@@ -1031,7 +1033,7 @@ export function Timeline({ editor }: { editor: Editor }) {
             {editor.clips.length === 0 && <p className="track-empty">Drag a take here from the media list, or start with text or a graphic.</p>}
             <TransitionKnobs editor={editor} pps={pps} />
           </div>
-          {project.tracks.filter((t) => t.kind === "audio").map((t) => <TrackLane key={t.id} editor={editor} pps={pps} trackId={t.id} onSnap={setSnapLine} />)}
+          {project.tracks.filter((t) => t.kind === "audio" && t.items.length > 0).map((t) => <TrackLane key={t.id} editor={editor} pps={pps} trackId={t.id} onSnap={setSnapLine} />)}
           {range && (
             <div
               className="range"
