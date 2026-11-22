@@ -463,8 +463,6 @@ button.rec.on { background: #8a1f1f; color: #fff; border-color: #ff5a5a; }
 .chat-pic button { position: absolute; top: 1px; right: 1px; padding: 0 4px; line-height: 14px; font-size: 12px; background: rgba(0,0,0,0.7); border: 0; }
 .msg-pics { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
 .msg-pics img { max-width: 180px; max-height: 120px; border-radius: 4px; border: 1px solid var(--line); display: block; }
-.chat-profile { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
-.chat-profile select { max-width: 130px; }
 
 
 /* ---- polish */
@@ -793,9 +791,8 @@ button.theme-toggle { display: inline-grid; place-items: center; padding: 5px 7p
 .markup-hint { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); padding: 5px 12px; border-radius: 999px; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 12px; pointer-events: none; }
 
 /* Talking to Hermes */
-.talk-btn { width: 30px; height: 30px; padding: 0; display: inline-grid; place-items: center; }
+.talk-btn { width: 34px; height: 34px; padding: 0; display: inline-grid; place-items: center; border-radius: 9px; flex: none; }
 .talk-btn.on { background: #c0392b; border-color: #e2685d; color: #fff; animation: talk-pulse 1.2s ease-in-out infinite; }
-.talk-btn.ghost.on { background: rgba(249, 163, 2, 0.2); border-color: var(--accent); color: var(--accent); animation: none; }
 .talk-btn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: talk-pulse 0.9s ease-in-out infinite; }
 @keyframes talk-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(226, 104, 93, 0.5); } 50% { box-shadow: 0 0 0 6px rgba(226, 104, 93, 0); } }
 .chat-pic.marked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
@@ -825,3 +822,21 @@ button.theme-toggle { display: inline-grid; place-items: center; padding: 5px 7p
 .ref-body textarea { resize: vertical; background: var(--field); color: inherit; border: 1px solid var(--line); border-radius: 4px; padding: 5px 7px; font: inherit; font-size: 12px; }
 .ref-actions { display: flex; align-items: center; justify-content: space-between; color: var(--dim); font-size: 11px; }
 
+/* Settings popup (gear in the top bar) */
+.settings-anchor { position: relative; }
+.settings-anchor > button.on { color: var(--accent); }
+.settings-pop { position: absolute; right: 0; top: calc(100% + 8px); z-index: 300; width: 320px; padding: 12px 14px 10px; border-radius: var(--r-lg); border: 1px solid var(--line);
+  background: var(--panel-solid); box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45); display: flex; flex-direction: column; gap: 6px; }
+.settings-pop h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin: 6px 0 2px; }
+.settings-pop h3:first-child { margin-top: 0; }
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
+.set-row > span { flex: none; }
+.set-row select, .set-row input:not([type="checkbox"]) { min-width: 0; flex: 1; max-width: 190px; background: var(--field); color: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 4px 7px; font: inherit; font-size: 12px; }
+.set-row.check { justify-content: flex-start; cursor: pointer; }
+.set-note { color: var(--dim); font-size: 11px; margin-top: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
+.set-note kbd { font: inherit; padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; }
+
+/* Chat composer: talk on the left, send and new chat on the right, all on one line */
+.chat-form .row { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+.chat-form .row > .talk-btn { margin-right: auto; }
+.chat-form .row > button { flex: none; }

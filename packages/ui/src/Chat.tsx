@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { takeAttachments } from "./attach";
 import { Icon } from "./icons";
-import { local } from "./storage";
+import { onSpeakReplies, speakReplies } from "./Settings";
 import { baseName } from "./time";
 import type { Editor } from "./useEditor";
 
@@ -20,8 +20,6 @@ export function Chat({ editor }: { editor: Editor }) {
   useEffect(() => takeAttachments((a) => setPics((p) => [...p, a].slice(-8))), []);
   const [uploading, setUploading] = useState(0);
   const [dropping, setDropping] = useState(false);
-  const [profiles, setProfiles] = useState<{ profiles: string[]; current: string } | null>(null);
-  useEffect(() => void api.hermesProfiles().then(setProfiles).catch(() => undefined), []);
 
   const addPictures = async (files: File[]) => {
     const images = files.filter((f) => /^image\/(png|jpeg|webp|gif)$/.test(f.type));
@@ -46,7 +44,12 @@ export function Chat({ editor }: { editor: Editor }) {
 
   // ---- Talking to Hermes, with the chosen profile's own speech-to-text and voice ----
   const [talk, setTalk] = useState<"idle" | "recording" | "transcribing">("idle");
-  const [speakOn, setSpeakOn] = useState(() => local.get("sous.speak") === "1");
+  // Set in the settings popup (the gear in the top bar).
+  const [speakOn, setSpeakOn] = useState(speakReplies);
+  useEffect(() => onSpeakReplies((on) => {
+    setSpeakOn(on);
+    if (!on) stopSpeaking();
+  }), []);
   const rec = useRef<{ recorder: MediaRecorder; stream: MediaStream; chunks: Blob[]; sendAfter: boolean; timer: number } | null>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
   const textRef = useRef(text);
@@ -265,44 +268,17 @@ export function Chat({ editor }: { editor: Editor }) {
         />
         <div className="row">
           <button
-            type="button" className={"round talk-btn" + (talk === "recording" ? " on" : "")} disabled={talk === "transcribing"}
+            type="button" className={"talk-btn" + (talk === "recording" ? " on" : "")} disabled={talk === "transcribing"}
             onClick={() => (talk === "recording" ? stopTalking() : void startTalking(false))}
             title={talk === "recording" ? "Stop and put the words in the box" : "Talk to Hermes: press, speak, press again to review before sending. Or hold V to talk and send at once."}
             aria-label={talk === "recording" ? "Stop talking" : "Talk"}
           >
             {talk === "transcribing" ? <span className="dot" /> : <Icon name="mic" />}
           </button>
-          <button
-            type="button" className={"round ghost talk-btn" + (speakOn ? " on" : "")}
-            onClick={() => {
-              const next = !speakOn;
-              setSpeakOn(next);
-              local.set("sous.speak", next ? "1" : "0");
-              if (!next) stopSpeaking();
-            }}
-            title={speakOn ? "Hermes reads its replies aloud. Click to turn off." : "Have Hermes read its replies aloud"}
-            aria-label={speakOn ? "Stop reading replies aloud" : "Read replies aloud"} aria-pressed={speakOn}
-          >
-            <Icon name={speakOn ? "speaker" : "speakerOff"} />
-          </button>
           {chat.running ? (
             <button type="button" onClick={() => void api.chatStop(pid)}>Stop</button>
           ) : (
             <button type="submit" className="primary" disabled={(!text.trim() && !pics.length) || sending || uploading > 0}>Send</button>
-          )}
-          {profiles && profiles.profiles.length > 1 && (
-            <label className="chat-profile" title="Which Hermes profile the editor talks to, for chat and the rough cut. Applies to every project.">
-              <span className="dim small">Profile</span>
-              <select
-                value={profiles.current} disabled={chat.running}
-                onChange={(e) => {
-                  const name = e.target.value;
-                  void api.setHermesProfile(name).then(() => setProfiles({ ...profiles, current: name })).catch((err) => editor.notify(err instanceof Error ? err.message : String(err), "error"));
-                }}
-              >
-                {profiles.profiles.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
-            </label>
           )}
           <button type="button" className="ghost" disabled={chat.running || chat.messages.length === 0} onClick={() => void api.chatClear(pid)} title="Forget this conversation and start a new one">New chat</button>
         </div>

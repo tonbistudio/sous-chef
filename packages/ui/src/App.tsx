@@ -6,6 +6,7 @@ import { clipSpans, cutRangeOps, splitAtOp } from "./actions";
 import { api, subscribe, token } from "./api";
 import { Chat } from "./Chat";
 import { Library } from "./Library";
+import { SettingsButton } from "./Settings";
 import { useTheme } from "./theme";
 import { Publish } from "./Publish";
 import { desktop } from "./desktop";
@@ -315,6 +316,7 @@ function EditorView({ editor, onClose }: { editor: Editor; onClose: () => void }
           {editor.connected ? "Live" : "Offline"}
         </span>
         <span className="rev" title="Project revision">r{editor.project.revision}</span>
+        <SettingsButton editor={editor} />
       </header>
       <Left editor={editor} />
       <Preview editor={editor} />
