@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, subscribe, type LibraryState, type PublishSettings, type TemplateSummary } from "./api";
+import { api, subscribe, type LibraryState, type PublishSettings, type Reference, type TemplateSummary } from "./api";
+import { FilePicker } from "./FilePicker";
 import { desktop } from "./desktop";
 import { Icon, type IconName } from "./icons";
 import { clock } from "./time";
 import type { Editor } from "./useEditor";
 
-type SectionId = "timeline" | "publishing" | "memory" | "projects";
+type SectionId = "timeline" | "references" | "publishing" | "memory" | "projects";
 const SECTIONS: { id: SectionId; icon: IconName; title: string; blurb: string }[] = [
   { id: "timeline", icon: "layers", title: "Timeline templates", blurb: "Intros, lower thirds, layouts: pieces of a timeline to drop into any project." },
+  { id: "references", icon: "film", title: "Reference videos", blurb: "Videos to point Hermes at: \u201ccut it like this one\u201d. Only the path is saved; nothing is copied." },
   { id: "publishing", icon: "doc", title: "Description and thumbnails", blurb: "The format and style Hermes follows in Publish." },
   { id: "memory", icon: "memory", title: "What Hermes remembers", blurb: "Notes about how you edit, carried into every project." },
   { id: "projects", icon: "clock", title: "Recent projects", blurb: "What you have worked on lately." },
@@ -20,12 +22,14 @@ const SECTIONS: { id: SectionId; icon: IconName; title: string; blurb: string }[
 export function Library({ editor }: { editor: Editor }) {
   const [lib, setLib] = useState<LibraryState | null>(null);
   const [active, setActive] = useState<SectionId>("timeline");
+  const [refs, setRefs] = useState<Reference[] | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const notify = useRef(editor.notify);
   notify.current = editor.notify;
   // Stable, so it fetches once and on library changes, not on every redraw.
   const load = useCallback(() => {
     void api.library().then(setLib).catch((e) => notify.current(e instanceof Error ? e.message : String(e), "error"));
+    void api.references().then((r) => setRefs(r.references)).catch(() => setRefs([]));
   }, []);
   useEffect(() => load(), [load]);
   useEffect(() => subscribe((e) => e.type === "library" && load(), () => {}), [load]);
@@ -49,6 +53,7 @@ export function Library({ editor }: { editor: Editor }) {
   };
   const count: Record<SectionId, string> = {
     timeline: lib ? String(lib.templates.length) : "",
+    references: refs ? String(refs.length) : "",
     publishing: "",
     memory: "",
     projects: lib ? String(lib.projects.length) : "",
@@ -71,6 +76,7 @@ export function Library({ editor }: { editor: Editor }) {
       </nav>
       <div className="lib-scroll" ref={scroller} onScroll={onScroll}>
         <Section id="timeline"><TimelineTemplates editor={editor} templates={lib?.templates ?? null} /></Section>
+        <Section id="references"><References editor={editor} refs={refs} onChange={load} /></Section>
         <Section id="publishing"><PublishTemplates editor={editor} /></Section>
         <Section id="memory"><Memory editor={editor} saved={lib?.memory ?? null} /></Section>
         <Section id="projects">
@@ -117,6 +123,82 @@ function when(iso: string): string {
   if (days === 1) return "Yesterday";
   if (days < 7) return `${days} days ago`;
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
+}
+
+/** Videos kept by path for Hermes to study, each with a thumbnail and a note on what it's a reference for. */
+function References({ editor, refs, onChange }: { editor: Editor; refs: Reference[] | null; onChange: () => void }) {
+  const [pathText, setPathText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [asking, setAsking] = useState<string | null>(null);
+  const fail = (e: unknown) => editor.notify(e instanceof Error ? e.message : String(e), "error");
+  const add = async (paths: string[]) => {
+    const list = paths.map((p) => p.trim().replace(/^"(.*)"$/, "$1")).filter(Boolean);
+    if (!list.length) return;
+    setBusy(true);
+    try {
+      for (const p of list) await api.addReference(p);
+      setPathText("");
+      onChange();
+      editor.notify(list.length === 1 ? "Reference added" : `${list.length} references added`, "info");
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const browse = () => {
+    if (desktop) void desktop.pickMedia().then((paths) => void add(paths));
+    else setPicking(true);
+  };
+  return (
+    <>
+      <div className="ref-add">
+        <button className="primary with-icon" onClick={browse} disabled={busy}><Icon name="plus" /> Add video</button>
+        <input
+          value={pathText} placeholder="…or paste a video's full path" spellCheck={false} disabled={busy}
+          onChange={(e) => setPathText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && void add([pathText])}
+        />
+        {pathText.trim() && <button onClick={() => void add([pathText])} disabled={busy}>Add</button>}
+      </div>
+      {refs && refs.length === 0 && <p className="lib-empty">No reference videos yet. Add one, then tell Hermes in the chat to \u201cedit it like my reference\u201d, or name it.</p>}
+      {refs && refs.length > 0 && <p className="ref-hint">Hermes sees this list in every chat and can look through any of them. Mention one by name.</p>}
+      <ul className="ref-grid">
+        {refs?.map((r) => (
+          <li key={r.id} className={r.missing ? "missing" : ""}>
+            <div className={"ref-thumb" + (r.width && r.height && r.height > r.width ? " tall" : "")}>
+              {r.missing ? <span>File not found</span> : <img src={api.referenceThumbUrl(r.id)} alt="" loading="lazy" />}
+              <em>{clock(r.durationUs, 0)}</em>
+            </div>
+            <div className="ref-body">
+              <strong title={r.name}>{r.name}</strong>
+              <span className="ref-path" title={r.path}>{r.path}</span>
+              <textarea
+                key={r.note} defaultValue={r.note} rows={2} placeholder="What's it a reference for? (pacing, intro, captions…)"
+                onBlur={(e) => e.target.value.trim() !== r.note && void api.updateReference(r.id, { note: e.target.value }).then(onChange).catch(fail)}
+              />
+              <div className="ref-actions">
+                <span>{r.width && r.height ? `${r.width}×${r.height}` : ""}</span>
+                <button
+                  className="ghost" onBlur={() => setAsking(null)}
+                  onClick={() => {
+                    if (asking !== r.id) return setAsking(r.id);
+                    setAsking(null);
+                    void api.removeReference(r.id).then(onChange).catch(fail);
+                  }}
+                  title="Take it out of the library. The video file is left alone."
+                >
+                  {asking === r.id ? "Remove?" : "Remove"}
+                </button>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {picking && <FilePicker mode="files" title="Add reference videos" onCancel={() => setPicking(false)} onFiles={(paths) => { setPicking(false); void add(paths); }} />}
+    </>
+  );
 }
 
 /** Saved stretches of timeline: save the marked stretch, drop one in at the playhead. */

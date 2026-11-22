@@ -18,6 +18,7 @@ import { speak, spokenText, transcribe } from "./talk.js";
 import { judgeRetakes } from "./retakes.js";
 import { captureTemplate, type Op } from "@sous-chef/core";
 import { deleteTemplate, getTemplate, libraryBriefing, listTemplates as listLibraryTemplates, logProjectOpen, noteProject, readMemory, readPreferences, readProjectLog, hermesProfiles, saveTemplate, templateId, writeMemory, writePreferences } from "./library.js";
+import { addReference, listReferences, referenceFrame, referencesBriefing, referenceThumb, removeReference, updateReference } from "./references.js";
 import { frameOf, listTemplates, overlayKey, renderOverlay, renderedOverlays, staleOverlays } from "./overlays.js";
 import { Jobs, type Job } from "./jobs.js";
 import { addThumbnail, clockLabel, descriptionTemplate, readPublish, readPublishSettings, removeThumbnail, saveThumbnailBytes, thumbnailPath, timedOutline, writePublish, writePublishSettings } from "./publish.js";
@@ -441,6 +442,56 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         throw new HttpError(400, err instanceof Error ? err.message : String(err), "invalid");
       }
     }
+    if (parts[1] === "library" && parts[2] === "references") {
+      // Reference videos: just paths, never copied. /references, /references/:id, .../thumb, .../frame, .../delete
+      const id = parts[3];
+      const fail = (err: unknown, status = 400) => new HttpError(status, err instanceof Error ? err.message : String(err), status === 404 ? "not_found" : "invalid");
+      const jpeg = (img: Buffer, cache: string) => {
+        res.writeHead(200, { "content-type": "image/jpeg", "content-length": img.length, "cache-control": cache });
+        res.end(img);
+      };
+      if (!id && method === "GET") return sendJson(res, 200, { references: await listReferences() });
+      if (!id && method === "POST") {
+        const body = await readJson(req);
+        try {
+          const ref = await addReference(String(body.path ?? ""), typeof body.note === "string" ? body.note : "", typeof body.name === "string" ? body.name : undefined);
+          broadcast({ type: "library" });
+          return sendJson(res, 200, ref);
+        } catch (err) {
+          throw fail(err);
+        }
+      }
+      if (id && parts[4] === "thumb" && method === "GET") {
+        try {
+          return jpeg(await referenceThumb(id), "private, max-age=86400");
+        } catch (err) {
+          throw fail(err, 404);
+        }
+      }
+      if (id && parts[4] === "frame" && method === "GET") {
+        try {
+          return jpeg(await referenceFrame(id, Number(url.searchParams.get("us") ?? 0), Number(url.searchParams.get("width") ?? 960)), "no-store");
+        } catch (err) {
+          throw fail(err, 404);
+        }
+      }
+      if (id && (parts[4] === "delete" || method === "DELETE") && (method === "POST" || method === "DELETE")) {
+        await removeReference(id).catch((err) => {
+          throw fail(err, 404);
+        });
+        broadcast({ type: "library" });
+        return sendJson(res, 200, { ok: true });
+      }
+      if (id && !parts[4] && method === "POST") {
+        try {
+          const ref = await updateReference(id, await readJson(req));
+          broadcast({ type: "library" });
+          return sendJson(res, 200, ref);
+        } catch (err) {
+          throw fail(err, 404);
+        }
+      }
+    }
     if (parts[1] === "library" && parts.length === 2 && method === "GET") {
       return sendJson(res, 200, { memory: await readMemory(), templates: await listLibraryTemplates(), projects: await readProjectLog() });
     }
@@ -760,7 +811,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         ].join("");
         const images = Array.isArray(body.images) ? body.images.map(String).filter((f: string) => CHAT_IMAGE.test(f) && existsSync(path.join(chatImagesDir(p.dir), f))).slice(0, 8) : [];
         try {
-          await chats.send(p.id, p.dir, text, context, () => libraryBriefing(p.dir), images);
+          await chats.send(p.id, p.dir, text, context, async () => [await libraryBriefing(p.dir), await referencesBriefing()].filter(Boolean).join("\n\n"), images);
         } catch (err) {
           throw new HttpError(409, err instanceof Error ? err.message : String(err), "conflict");
         }

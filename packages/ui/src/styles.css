@@ -806,3 +806,22 @@ button.theme-toggle { display: inline-grid; place-items: center; padding: 5px 7p
 .tl-fit { font-size: 12px; padding: 2px 10px; border-radius: 999px; }
 .tl-fit.on { color: var(--accent); border-color: var(--accent); }
 .tl-tab-shape { font-style: normal; font-size: 10px; margin-left: 6px; padding: 0 5px; border-radius: 999px; border: 1px solid var(--accent); color: var(--accent); }
+
+/* Library: reference videos */
+.ref-add { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+.ref-add input { flex: 1; max-width: 560px; background: var(--field); color: inherit; border: 1px solid var(--line); border-radius: var(--r); padding: 7px 10px; font: inherit; }
+.ref-hint { color: var(--dim); font-size: 12px; margin: 0 0 10px; }
+.ref-grid { list-style: none; margin: 0 0 16px; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+.ref-grid li { border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; background: color-mix(in srgb, var(--raised) 70%, transparent); display: flex; flex-direction: column; }
+.ref-grid li.missing { opacity: 0.7; }
+.ref-thumb { position: relative; aspect-ratio: 16 / 9; background: #000; display: grid; place-items: center; overflow: hidden; }
+.ref-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.ref-thumb.tall img { object-fit: contain; }
+.ref-thumb > span { color: #ddd; font-size: 12px; }
+.ref-thumb em { position: absolute; right: 6px; bottom: 6px; font-style: normal; font-size: 11px; padding: 1px 6px; border-radius: 4px; background: rgba(0, 0, 0, 0.72); color: #fff; }
+.ref-body { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ref-body strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ref-path { color: var(--dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+.ref-body textarea { resize: vertical; background: var(--field); color: inherit; border: 1px solid var(--line); border-radius: 4px; padding: 5px 7px; font: inherit; font-size: 12px; }
+.ref-actions { display: flex; align-items: center; justify-content: space-between; color: var(--dim); font-size: 11px; }
+

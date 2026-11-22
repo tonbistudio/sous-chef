@@ -145,6 +145,19 @@ export interface PublishSettings {
   fileReadable?: boolean;
 }
 
+/** A video kept in the library by its path, for pointing Hermes at. */
+export interface Reference {
+  id: string;
+  path: string;
+  name: string;
+  note: string;
+  addedAt: string;
+  durationUs: number;
+  width: number | null;
+  height: number | null;
+  missing?: boolean;
+}
+
 export type ServerEvent = { type: "publish"; projectId: string } | { type: "library" } | { type: "chat"; projectId: string; chat: ChatState } | { type: "cache"; projectId: string } | { type: "proposals"; projectId: string } | ChangeEvent | { type: "job"; job: Job } | { type: "export"; job: ExportJob };
 
 /** Editor-wide defaults kept in preferences.json. */
@@ -227,6 +240,11 @@ export const api = {
   chatStop: (pid: string) => call<{ ok: boolean }>("POST", `/api/p/${pid}/chat/stop`, {}),
   chatClear: (pid: string) => call<ChatState>("POST", `/api/p/${pid}/chat/clear`, {}),
   library: () => call<LibraryState>("GET", "/api/library"),
+  references: () => call<{ references: Reference[] }>("GET", "/api/library/references"),
+  addReference: (path: string, note = "") => call<Reference>("POST", "/api/library/references", { path, note }),
+  updateReference: (id: string, patch: { note?: string; name?: string }) => call<Reference>("POST", `/api/library/references/${encodeURIComponent(id)}`, patch),
+  removeReference: (id: string) => call<{ ok: boolean }>("POST", `/api/library/references/${encodeURIComponent(id)}/delete`, {}),
+  referenceThumbUrl: (id: string) => `/api/library/references/${encodeURIComponent(id)}/thumb?token=${token}`,
   saveMemory: (text: string) => call<{ memory: string }>("POST", "/api/library/memory", { text }),
   deleteTemplate: (id: string) => call<{ ok: boolean }>("POST", `/api/library/templates/${encodeURIComponent(id)}/delete`, {}),
   captureTemplate: (pid: string, body: { fromUs: number; toUs: number; name: string; description: string }) =>

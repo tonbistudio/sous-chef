@@ -143,11 +143,16 @@ export const TOOLS = [
       "templates_list / template_get: reusable timeline pieces (intro, outro, lower third, picture-in-picture layout) saved from earlier projects. template_save saves a stretch of a project's open timeline (from_us to to_us, timeline time) as a template with a name and a one-line description of when to use it. " +
       "template_insert drops a template into a project at at_us as one undo step: text, graphics, pictures and sound sit on top without moving anything; a template with main-track clips (an intro video) makes room by moving later content right. template_delete removes one. " +
       "project_note: one line about what this project is and what was done, shown to you in later projects. preferences_set: new_project_speed is the speed new projects start at. " +
+      "References: videos the owner points you at (their past videos, or other creators' to learn from), kept by path only and never copied. references_list shows them with their notes; reference_add adds one by full path with a note on what it's a reference for; reference_frames shows you frames of one (reference_id, then at_us times in the reference, or count for evenly spaced frames, default 6, at most 12) so you can study its pacing, framing, graphics or captions; reference_remove forgets one (the file is left alone). " +
       TIME_NOTE,
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["memory_read", "memory_write", "templates_list", "template_get", "template_save", "template_insert", "template_delete", "project_note", "preferences_get", "preferences_set"] },
+        action: { type: "string", enum: ["memory_read", "memory_write", "templates_list", "template_get", "template_save", "template_insert", "template_delete", "project_note", "preferences_get", "preferences_set", "references_list", "reference_add", "reference_frames", "reference_remove"] },
+        reference_id: { type: "string", description: "reference_frames, reference_remove." },
+        path: { type: "string", description: "reference_add: full path of the video file." },
+        times_us: { type: "array", items: { type: "integer" }, description: "reference_frames: times in the reference video." },
+        count: { type: "integer", description: "reference_frames: evenly spaced frames when no times are given (default 6, max 12)." },
         project_id: { type: "string", description: "For template_save, template_insert and project_note." },
         text: { type: "string", description: "memory_write: the whole new memory, markdown." },
         template_id: { type: "string" },
@@ -156,7 +161,7 @@ export const TOOLS = [
         from_us: { type: "integer" },
         to_us: { type: "integer" },
         at_us: { type: "integer", description: "template_insert: timeline time; the end of the main track if omitted." },
-        note: { type: "string", description: "project_note: one line." },
+        note: { type: "string", description: "project_note: one line. reference_add: what the video is a reference for." },
         new_project_speed: { type: "number" },
       },
       required: ["action"],
@@ -472,6 +477,28 @@ export async function callTool(api: EditApi, name: string, args: Record<string, 
       if (typeof args.text !== "string") throw new Error("text is required");
       await api.post("/api/library/memory", { text: args.text });
       return text("Saved the editor memory.");
+    }
+    if (a === "references_list") return text((await api.get<{ references: unknown[] }>("/api/library/references")).references);
+    if (a === "reference_add") return text(await api.post("/api/library/references", { path: args.path, note: args.note ?? "" }));
+    if (a === "reference_remove") return text(await api.post(`/api/library/references/${encodeURIComponent(String(args.reference_id ?? ""))}/delete`, {}));
+    if (a === "reference_frames") {
+      const id = String(args.reference_id ?? "");
+      const refs = (await api.get<{ references: { id: string; name: string; durationUs: number; missing: boolean }[] }>("/api/library/references")).references;
+      const ref = refs.find((r) => r.id === id);
+      if (!ref) throw new Error(`No reference "${id}". Use references_list.`);
+      if (ref.missing) throw new Error(`"${ref.name}" is not at its path any more.`);
+      let times = Array.isArray(args.times_us) ? (args.times_us as unknown[]).map(Number).filter((n) => Number.isFinite(n) && n >= 0).slice(0, 12) : [];
+      if (!times.length) {
+        const n = Math.max(1, Math.min(12, Math.round(Number(args.count ?? 6)) || 6));
+        times = Array.from({ length: n }, (_, i) => Math.round(ref.durationUs * (0.04 + (0.92 * (i + 0.5)) / n)));
+      }
+      const width = times.length > 6 ? 480 : 640;
+      const content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[] = [];
+      for (const us of times) {
+        const f = await api.frame(`/api/library/references/${encodeURIComponent(id)}/frame?us=${Math.round(us)}&width=${width}`);
+        content.push({ type: "text", text: `${ref.name} at ${sec(us)}` }, { type: "image", data: f.jpeg.toString("base64"), mimeType: "image/jpeg" });
+      }
+      return { content };
     }
     if (a === "templates_list") return text((await api.get<{ templates: unknown[] }>("/api/library")).templates);
     if (a === "template_get") return text(await api.get(`/api/library/templates/${encodeURIComponent(String(args.template_id ?? ""))}`));
