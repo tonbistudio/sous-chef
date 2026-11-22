@@ -5,6 +5,7 @@ export function defaultSettings(): Settings {
   return {
     width: 1920,
     height: 1080,
+    frameFit: "fill",
     fps: 60,
     cut: { headPadUs: 100_000, tailPadUs: 100_000, audioFadeUs: 10_000 },
     zoom: { inUs: 1_500_000, outUs: 1_500_000, maxScale: 2.0 },
@@ -18,6 +19,8 @@ export function defaultSettings(): Settings {
 export function fillSettings(project: Project): Project {
   const d = defaultSettings() as unknown as Record<string, unknown>;
   const s = project.settings as unknown as Record<string, unknown>;
+  // Projects from before "fill" showed every recording whole, with bars; they keep doing that.
+  if (!("frameFit" in s)) s.frameFit = "fit";
   for (const [key, value] of Object.entries(d)) {
     if (!(key in s)) s[key] = value;
     else if (value && typeof value === "object") {

@@ -18,7 +18,7 @@ import { speak, spokenText, transcribe } from "./talk.js";
 import { judgeRetakes } from "./retakes.js";
 import { captureTemplate, type Op } from "@sous-chef/core";
 import { deleteTemplate, getTemplate, libraryBriefing, listTemplates as listLibraryTemplates, logProjectOpen, noteProject, readMemory, readPreferences, readProjectLog, hermesProfiles, saveTemplate, templateId, writeMemory, writePreferences } from "./library.js";
-import { listTemplates, overlayKey, renderOverlay, renderedOverlays, staleOverlays } from "./overlays.js";
+import { frameOf, listTemplates, overlayKey, renderOverlay, renderedOverlays, staleOverlays } from "./overlays.js";
 import { Jobs, type Job } from "./jobs.js";
 import { addThumbnail, clockLabel, descriptionTemplate, readPublish, readPublishSettings, removeThumbnail, saveThumbnailBytes, thumbnailPath, timedOutline, writePublish, writePublishSettings } from "./publish.js";
 import { cutSuggestions, dropProposal, getProposal, listProposals, saveProposal, summarize, usableOps, zoomSuggestions } from "./proposals.js";
@@ -293,12 +293,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   /** Renders HyperFrames overlays that are new or changed, one job at a time per project. */
   const renderOverlays = (p: ReturnType<Store["get"]>): void => {
     if (options.autoPrepare === false || jobs.running(p.id, "overlays")) return;
+    const size = frameOf(p.project);
     void staleOverlays(p.dir, p.project).then((stale) => {
       if (!stale.length || jobs.running(p.id, "overlays")) return;
       jobs.start("overlays", p.id, `Render ${stale.length} HyperFrames overlay${stale.length === 1 ? "" : "s"}`, async (h) => {
         for (const [i, o] of stale.entries()) {
           h.update(i / stale.length, `Rendering "${o.text || o.template}"`);
-          await renderOverlay(p.dir, o, h, (f) => h.update((i + f) / stale.length));
+          await renderOverlay(p.dir, o, h, (f) => h.update((i + f) / stale.length), size);
           broadcast({ type: "cache", projectId: p.id });
         }
         // Overlays edited while this ran still need doing.
@@ -688,7 +689,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       if (what === "export" && !rest[1] && method === "POST") {
         const body = await readJson(req).catch(() => ({}) as Record<string, unknown>);
         const name = path.basename(p.dir).replace(/\.(sous|aigedit|cutroom)$/i, "");
-        let out = typeof body.path === "string" && body.path ? body.path : path.join(p.dir, "exports", `${name}-r${p.project.revision}.mp4`);
+        // With more than one timeline, the file says which one it is: "REA-6.10 - Short 1 - r99.mp4".
+        const many = (p.project.timelines ?? []).length > 0;
+        const tlName = (p.project.timelineName ?? "").replace(/[<>:"/\\|?*\x00-\x1f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
+        const file = many && tlName ? `${name} - ${tlName} - r${p.project.revision}.mp4` : `${name}-r${p.project.revision}.mp4`;
+        let out = typeof body.path === "string" && body.path ? body.path : path.join(p.dir, "exports", file);
         if (!path.isAbsolute(out)) throw new HttpError(400, "path must be absolute", "invalid");
         if (!/\.(mp4|mov|mkv)$/i.test(out)) out += ".mp4";
         // Never write over footage the project uses.
@@ -937,7 +942,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         const rendered: Record<string, string> = {};
         for (const id of Object.keys(fresh)) {
           const o = p.project.items[id];
-          if (o?.type === "overlay") rendered[id] = overlayKey(o);
+          if (o?.type === "overlay") rendered[id] = overlayKey(o, frameOf(p.project));
         }
         return sendJson(res, 200, { rendered });
       }

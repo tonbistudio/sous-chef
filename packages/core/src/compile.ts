@@ -112,6 +112,28 @@ export function clipDurationUs(clip: Clip, cut: Settings["cut"]): Us {
   return total;
 }
 
+/** How much bigger than "fits inside" a picture of this shape must be to cover the whole frame. */
+export function coverScale(aspect: number | undefined, frameAspect: number): number {
+  if (!aspect || !(aspect > 0) || !(frameAspect > 0)) return 1;
+  const r = aspect / frameAspect;
+  return Math.max(r, 1 / r);
+}
+
+/** A transform nobody has moved, resized or cropped. */
+export function isPlainTransform(t: Transform | undefined): boolean {
+  return !t || (Math.abs(t.x) < 1e-4 && Math.abs(t.y) < 1e-4 && Math.abs(t.scale - 1) < 1e-4 && t.crop[0] < 1e-4 && t.crop[1] < 1e-4 && t.crop[2] > 0.9999 && t.crop[3] > 0.9999);
+}
+
+/**
+ * Where a main-track clip is shown. On a timeline set to fill, a clip that has not been moved, resized or
+ * cropped is scaled up to cover the frame when its shape differs (a wide recording on a tall timeline).
+ */
+export function mainTransform(t: Transform, aspect: number | undefined, settings: Settings): Transform {
+  if (settings.frameFit !== "fill" || !isPlainTransform(t)) return t;
+  const s = coverScale(aspect, settings.width / settings.height);
+  return Math.abs(s - 1) < 1e-4 ? t : { ...t, scale: s };
+}
+
 /** Turns a project into the flat plan that both preview and export read. */
 export function compile(project: Project): Plan {
   const { settings } = project;
@@ -154,7 +176,7 @@ export function compile(project: Project): Plan {
           clipEndUs,
           fadeInUs: Math.min(clip.fadeInUs, clipEndUs - clipStartUs),
           fadeOutUs: Math.min(clip.fadeOutUs, clipEndUs - clipStartUs),
-          transform: clip.transform,
+          transform: track.kind === "main" && media.kind !== "image" ? mainTransform(clip.transform, media.probe.width && media.probe.height ? media.probe.width / media.probe.height : undefined, settings) : clip.transform,
           ...(media.probe.width && media.probe.height ? { aspect: media.probe.width / media.probe.height } : {}),
         });
         t += len;

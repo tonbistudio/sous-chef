@@ -496,11 +496,57 @@ type Drag =
 let draggedTimeline: string | null = null;
 
 /** One tab per timeline. Click to open one, drag one onto the timeline below to drop all of it in. */
+/** Frame shapes offered for a timeline; the first is the default for new ones. */
+export const FRAME_SHAPES = [
+  { label: "16:9", hint: "Landscape (YouTube)", width: 1920, height: 1080 },
+  { label: "9:16", hint: "Vertical (Shorts, Reels, TikTok)", width: 1080, height: 1920 },
+  { label: "1:1", hint: "Square", width: 1080, height: 1080 },
+  { label: "4:5", hint: "Portrait (Instagram feed)", width: 1080, height: 1350 },
+] as const;
+
+/** "9:16" for a frame of that shape, or the plain size when it is none of the offered ones. */
+export function shapeLabel(width: number, height: number): string {
+  const s = FRAME_SHAPES.find((f) => Math.abs(f.width / f.height - width / height) < 0.005);
+  return s ? s.label : `${width}×${height}`;
+}
+
+function FrameShape({ editor }: { editor: Editor }) {
+  const { width, height, frameFit } = editor.project.settings;
+  const current = FRAME_SHAPES.find((f) => f.width === width && f.height === height);
+  return (
+    <span className="tl-shape" title="This timeline's frame shape. Each timeline has its own, so a Short can sit next to the full video.">
+      <select
+        aria-label="Frame shape"
+        value={current ? current.label : "custom"}
+        onChange={(e) => {
+          const f = FRAME_SHAPES.find((x) => x.label === e.target.value);
+          if (f) void editor.run(`Frame ${f.label}`, [{ op: "timeline.size", width: f.width, height: f.height }]);
+        }}
+      >
+        {FRAME_SHAPES.map((f) => (
+          <option key={f.label} value={f.label}>{f.label} · {f.hint}</option>
+        ))}
+        {!current && <option value="custom">{width}×{height}</option>}
+      </select>
+      <button
+        className={"ghost tl-fit" + ((frameFit ?? "fit") === "fill" ? " on" : "")}
+        onClick={() => void editor.run((frameFit ?? "fit") === "fill" ? "Show whole recording" : "Fill the frame", [{ op: "timeline.size", width, height, frameFit: (frameFit ?? "fit") === "fill" ? "fit" : "fill" }])}
+        title={(frameFit ?? "fit") === "fill"
+          ? "Fill: a recording of a different shape covers the frame and its edges are cut off. Click to show it whole with bars instead. Move or resize it on the preview to choose what shows."
+          : "Fit: a recording of a different shape shows whole, with bars. Click to make it fill the frame instead."}
+      >
+        {(frameFit ?? "fit") === "fill" ? "Fill" : "Fit"}
+      </button>
+    </span>
+  );
+}
+
 function TimelineTabs({ editor }: { editor: Editor }) {
   const p = editor.project;
   const [editing, setEditing] = useState<string | null>(null);
   const [asking, setAsking] = useState<string | null>(null);
   const names = new Map<string, string>([[p.timelineId ?? "tl1", p.timelineName ?? "Timeline 1"], ...(p.timelines ?? []).map((t) => [t.id, t.name] as [string, string])]);
+  const shapes = new Map<string, string>([[p.timelineId ?? "tl1", shapeLabel(p.settings.width, p.settings.height)], ...(p.timelines ?? []).map((t) => [t.id, t.size ? shapeLabel(t.size.width, t.size.height) : shapeLabel(p.settings.width, p.settings.height)] as [string, string])]);
   const order = [...new Set([...(p.timelineOrder ?? []), ...names.keys()])].filter((id) => names.has(id));
   const rename = (id: string, name: string) => {
     setEditing(null);
@@ -538,6 +584,7 @@ function TimelineTabs({ editor }: { editor: Editor }) {
             ) : (
               <span>{name}</span>
             )}
+            {editing !== id && shapes.get(id) !== "16:9" && <em className="tl-tab-shape">{shapes.get(id)}</em>}
             {order.length > 1 && editing !== id && (
               <button
                 className="x" aria-label={`Remove ${name}`}
@@ -557,6 +604,7 @@ function TimelineTabs({ editor }: { editor: Editor }) {
         );
       })}
       <button className="ghost" onClick={() => void editor.run("New timeline", [{ op: "timeline.add" }])} title="Start another timeline in this project, for building a section on its own">+ Timeline</button>
+      <FrameShape editor={editor} />
     </div>
   );
 }

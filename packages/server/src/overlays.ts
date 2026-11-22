@@ -36,10 +36,17 @@ export async function listTemplates(): Promise<Record<string, TemplateInfo>> {
 
 const cacheDir = (projectDir: string) => path.join(projectDir, "cache", "overlays");
 
-/** What the rendered file depends on. */
-export function overlayKey(o: Pick<Overlay, "template" | "params" | "durationUs">): string {
+/** A timeline's frame size; graphics are drawn at it. */
+export type FrameSize = [number, number];
+const LANDSCAPE: FrameSize = [1920, 1080];
+export const frameOf = (project: Project): FrameSize => [project.settings.width || 1920, project.settings.height || 1080];
+
+/** What the rendered file depends on. The 16:9 key is unchanged from before timelines had sizes, so those renders stay valid. */
+export function overlayKey(o: Pick<Overlay, "template" | "params" | "durationUs">, size: FrameSize = LANDSCAPE): string {
   const params = Object.entries(o.params ?? {}).sort(([a], [b]) => a.localeCompare(b));
-  return createHash("sha1").update(JSON.stringify([o.template, params, o.durationUs])).digest("hex").slice(0, 16);
+  const parts: unknown[] = [o.template, params, o.durationUs];
+  if (size[0] !== LANDSCAPE[0] || size[1] !== LANDSCAPE[1]) parts.push(size);
+  return createHash("sha1").update(JSON.stringify(parts)).digest("hex").slice(0, 16);
 }
 
 async function keyOf(projectDir: string, id: string): Promise<string | null> {
@@ -66,7 +73,7 @@ export async function renderedOverlays(projectDir: string, project?: Project): P
   }
   for (const o of hfOverlays(project)) {
     const file = path.join(cacheDir(projectDir), `${o.id}.webm`);
-    if (existsSync(file) && (await keyOf(projectDir, o.id)) === overlayKey(o)) out[o.id] = file;
+    if (existsSync(file) && (await keyOf(projectDir, o.id)) === overlayKey(o, frameOf(project))) out[o.id] = file;
   }
   return out;
 }
@@ -82,7 +89,7 @@ const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 const NUMERIC = new Set(["duration", "x", "y", "w", "h", "value"]);
 
 /** Fills a template. Values are HTML-escaped; colours and numbers are checked, so a value cannot add markup or script. */
-export async function fillTemplate(template: string, params: Record<string, string>, durationUs: number): Promise<string> {
+export async function fillTemplate(template: string, params: Record<string, string>, durationUs: number, size: FrameSize = LANDSCAPE): Promise<string> {
   const templates = await listTemplates();
   const info = templates[template];
   if (!info) throw new Error(`No HyperFrames template "${template}". Available: ${Object.keys(templates).join(", ")}`);
@@ -95,17 +102,19 @@ export async function fillTemplate(template: string, params: Record<string, stri
     if (NUMERIC.has(k)) return String(Number.isFinite(Number(v)) && v.trim() !== "" ? Number(v) : 0);
     return esc(v);
   });
+  // Templates are written for a 1920x1080 page; draw them at the timeline's frame size instead.
+  if (size[0] !== LANDSCAPE[0] || size[1] !== LANDSCAPE[1]) html = html.replace(/(?<!\d)(1920|1080)(?!\d)/g, (n) => String(n === "1920" ? size[0] : size[1]));
   return html;
 }
 
 /** Renders one overlay to <cache>/overlays/<id>.webm. */
-export async function renderOverlay(projectDir: string, o: Overlay, handle: JobHandle | null, onProgress?: (f: number) => void): Promise<string> {
+export async function renderOverlay(projectDir: string, o: Overlay, handle: JobHandle | null, onProgress?: (f: number) => void, size: FrameSize = LANDSCAPE): Promise<string> {
   if (!o.template) throw new Error(`Overlay ${o.id} has no template`);
   const dir = cacheDir(projectDir);
   const work = path.join(dir, `.work-${o.id}`);
   await rm(work, { recursive: true, force: true });
   await mkdir(work, { recursive: true });
-  await writeFile(path.join(work, "index.html"), await fillTemplate(o.template, o.params ?? {}, o.durationUs), "utf8");
+  await writeFile(path.join(work, "index.html"), await fillTemplate(o.template, o.params ?? {}, o.durationUs, size), "utf8");
   await writeFile(path.join(work, "meta.json"), JSON.stringify({ id: `sous-${o.id}`, name: `sous-${o.id}` }), "utf8");
   await writeFile(path.join(work, "hyperframes.json"), JSON.stringify({ paths: { blocks: "compositions", components: "compositions/components", assets: "assets" } }), "utf8");
   const tmp = path.join(work, "out.webm");
@@ -141,7 +150,7 @@ export async function renderOverlay(projectDir: string, o: Overlay, handle: JobH
     });
     const file = path.join(dir, `${o.id}.webm`);
     await rename(tmp, file);
-    await writeFile(path.join(dir, `${o.id}.json`), JSON.stringify({ key: overlayKey(o), template: o.template }), "utf8");
+    await writeFile(path.join(dir, `${o.id}.json`), JSON.stringify({ key: overlayKey(o, size), template: o.template }), "utf8");
     return file;
   } finally {
     await rm(work, { recursive: true, force: true }).catch(() => undefined);

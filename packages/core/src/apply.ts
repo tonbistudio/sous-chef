@@ -195,13 +195,34 @@ function ripple(p: Project, clip: Clip, lengthBefore: number): void {
   settleMain(p);
 }
 
+/** A frame size an encoder takes: whole, even, and between 16 and 7680 pixels a side. */
+function frameSize(width: unknown, height: unknown): [number, number] {
+  if (!isInt(width) || !isInt(height)) fail("invalid", "width and height must be whole numbers of pixels");
+  if (width < 16 || height < 16 || width > 7680 || height > 7680) fail("invalid", "width and height must be between 16 and 7680 pixels");
+  if (width % 2 || height % 2) fail("invalid", "width and height must be even numbers");
+  return [width, height];
+}
+
 function stowTimeline(p: Project): StoredTimeline {
-  return { id: p.timelineId ?? "tl1", name: p.timelineName ?? "Timeline 1", tracks: p.tracks, items: p.items, markers: p.markers };
+  return {
+    id: p.timelineId ?? "tl1",
+    name: p.timelineName ?? "Timeline 1",
+    size: { width: p.settings.width, height: p.settings.height, frameFit: p.settings.frameFit ?? "fill" },
+    tracks: p.tracks,
+    items: p.items,
+    markers: p.markers,
+  };
 }
 
 function loadTimeline(p: Project, t: StoredTimeline): void {
   p.timelineId = t.id;
   p.timelineName = t.name;
+  // A timeline saved before timelines had their own size keeps the size the project had.
+  if (t.size) {
+    p.settings.width = t.size.width;
+    p.settings.height = t.size.height;
+    p.settings.frameFit = t.size.frameFit ?? "fill";
+  }
   p.tracks = clone(t.tracks);
   p.items = clone(t.items);
   p.markers = clone(t.markers);
@@ -718,10 +739,25 @@ function applyOp(p: Project, op: Op, by: Transaction["by"], opts: ApplyOptions):
       p.timelineOrder = [...(p.timelineOrder ?? [p.timelineId ?? "tl1", ...lines.map((t) => t.id)]), id];
       p.timelineId = id;
       p.timelineName = String(op.name ?? `Timeline ${p.timelines.length + 1}`).slice(0, 80);
+      // New timelines start 16:9 unless a size is given.
+      const [w, h] = op.width !== undefined || op.height !== undefined ? frameSize(op.width, op.height) : [1920, 1080];
+      p.settings.width = w;
+      p.settings.height = h;
+      p.settings.frameFit = "fill";
       p.tracks = [{ id: "main", kind: "main", name: "Main", muted: false, locked: false, items: [] }];
       p.items = {};
       p.markers = [];
       return id;
+    }
+    case "timeline.size": {
+      const [w, h] = frameSize(op.width, op.height);
+      p.settings.width = w;
+      p.settings.height = h;
+      if (op.frameFit !== undefined) {
+        if (op.frameFit !== "fill" && op.frameFit !== "fit") fail("invalid", 'frameFit must be "fill" or "fit"');
+        p.settings.frameFit = op.frameFit;
+      }
+      return null;
     }
     case "timeline.switch": {
       if (op.timelineId === p.timelineId) return null;
@@ -866,6 +902,7 @@ function applyOp(p: Project, op: Op, by: Transaction["by"], opts: ApplyOptions):
       }
       const { width, height, fps } = p.settings;
       if (!(width >= 16 && height >= 16 && fps >= 1 && fps <= 240)) fail("invalid", "Picture size or frame rate out of range");
+      if (p.settings.frameFit !== "fill" && p.settings.frameFit !== "fit") fail("invalid", 'frameFit must be "fill" or "fit"');
       return null;
     }
     default: {

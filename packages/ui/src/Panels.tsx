@@ -358,10 +358,14 @@ function LayerBox({ editor, clip, main = false }: { editor: Editor; clip: Clip; 
   const { plan } = editor;
   const seg = plan.segments.find((sg) => sg.clipId === clip.id);
   const ref = useRef<HTMLDivElement>(null);
-  const [t, setT] = useState(clip.transform);
+  // Where it actually shows: an untouched main clip on a "fill" timeline is scaled up to cover the frame.
+  const shown = (main && seg?.transform) || clip.transform;
+  const shownKey = JSON.stringify(shown);
+  const [t, setT] = useState(shown);
   const [cropping, setCropping] = useState(false);
   const drag = useRef<{ mode: LayerDrag; x: number; y: number; start: Clip["transform"]; moved: boolean } | null>(null);
-  useEffect(() => setT(clip.transform), [clip.transform]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setT(shown), [shownKey]);
   // The main recording is shown unzoomed while it is being placed, like a zoom box.
   useEffect(() => {
     if (!main) return;
@@ -455,7 +459,7 @@ function LayerBox({ editor, clip, main = false }: { editor: Editor; clip: Clip; 
       <div className="layer-tools" style={inset ? { left: `calc(${pct(ix0)} + 6px)`, top: `calc(${pct(iy0)} + 6px)` } : undefined} onPointerDown={(e) => e.stopPropagation()}>
         <button className={cropping ? "on" : ""} onClick={() => setCropping(!cropping)}>{cropping ? "Done cropping" : "Crop"}</button>
         {isCropped && <button onClick={() => void editor.run("Remove crop", [{ op: "clip.set", clipId: clip.id, transform: { crop: [0, 0, 1, 1] } }])}>Reset crop</button>}
-        {main && (Math.abs(t.scale - 1) > 0.001 || Math.abs(t.x) > 0.001 || Math.abs(t.y) > 0.001) && <button onClick={() => void editor.run("Reset size and position", [{ op: "clip.set", clipId: clip.id, transform: { x: 0, y: 0, scale: 1 } }])}>Reset size</button>}
+        {main && (Math.abs(clip.transform.scale - 1) > 0.001 || Math.abs(clip.transform.x) > 0.001 || Math.abs(clip.transform.y) > 0.001) && <button onClick={() => void editor.run("Reset size and position", [{ op: "clip.set", clipId: clip.id, transform: { x: 0, y: 0, scale: 1 } }])}>Reset size</button>}
       </div>
       {(cropping ? (["crop-l", "crop-r", "crop-t", "crop-b"] as const) : (["tl", "tr", "bl", "br"] as const)).map(handle)}
     </div>

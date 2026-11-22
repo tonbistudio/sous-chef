@@ -13,8 +13,11 @@ export type Us = number;
 export type Rect = [number, number, number, number];
 
 export interface Settings {
+  /** Frame size of the timeline being edited; each timeline keeps its own (see StoredTimeline.size). */
   width: number;
   height: number;
+  /** How main-track video that is a different shape from the frame is shown: "fill" covers the frame (the sides or top are cut off), "fit" shows all of it with bars. */
+  frameFit: "fill" | "fit";
   fps: number;
   cut: { headPadUs: Us; tailPadUs: Us; audioFadeUs: Us };
   zoom: { inUs: Us; outUs: Us; maxScale: number };
@@ -234,6 +237,8 @@ export interface TemplateBody {
 export interface StoredTimeline {
   id: string;
   name: string;
+  /** Its frame size and fit; absent on timelines saved before timelines had their own size. */
+  size?: { width: number; height: number; frameFit?: "fill" | "fit" };
   tracks: Track[];
   items: Record<string, Item>;
   markers: Marker[];
@@ -343,7 +348,9 @@ export type Op =
   | { op: "word.fix"; mediaId: string; wordId: string; text: string | null }
   /** Closes empty space on the main track: the gap at a time, or every gap when no time is given. */
   | { op: "gap.close"; atUs?: Us }
-  | { op: "timeline.add"; name?: string; id?: string }
+  | { op: "timeline.add"; name?: string; id?: string; width?: number; height?: number }
+  /** Sets the frame size of the timeline being edited (16:9 1920x1080, 9:16 1080x1920, 1:1 1080x1080, 4:5 1080x1350...). */
+  | { op: "timeline.size"; width: number; height: number; frameFit?: "fill" | "fit" }
   | { op: "timeline.switch"; timelineId: string }
   | { op: "timeline.rename"; timelineId: string; name: string }
   | { op: "timeline.remove"; timelineId: string }

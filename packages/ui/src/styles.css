@@ -799,3 +799,10 @@ button.theme-toggle { display: inline-grid; place-items: center; padding: 5px 7p
 .talk-btn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: talk-pulse 0.9s ease-in-out infinite; }
 @keyframes talk-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(226, 104, 93, 0.5); } 50% { box-shadow: 0 0 0 6px rgba(226, 104, 93, 0); } }
 .chat-pic.marked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+/* Frame shape of the timeline being edited */
+.tl-shape { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; padding-right: 6px; }
+.tl-shape select { font-size: 12px; padding: 2px 6px; border-radius: 999px; }
+.tl-fit { font-size: 12px; padding: 2px 10px; border-radius: 999px; }
+.tl-fit.on { color: var(--accent); border-color: var(--accent); }
+.tl-tab-shape { font-style: normal; font-size: 10px; margin-left: 6px; padding: 0 5px; border-radius: 999px; border: 1px solid var(--accent); color: var(--accent); }
