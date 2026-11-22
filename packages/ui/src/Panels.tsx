@@ -401,7 +401,24 @@ function LayerBox({ editor, clip, main = false }: { editor: Editor; clip: Clip; 
     const same = next.x === round(s.x) && next.y === round(s.y) && next.scale === round(s.scale) && next.crop.every((v, i) => v === round(s.crop[i]!));
     if (!same) void editor.run(d.mode === "move" ? "Move on screen" : d.mode.startsWith("crop") ? "Crop" : "Resize", [{ op: "clip.set", clipId: clip.id, transform: next }]);
   };
-  const handle = (mode: LayerDrag) => <b key={mode} className={"h " + mode} onPointerDown={down(mode)} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} />;
+  // When the picture is bigger than the frame, keep the buttons and handles on the part still on screen.
+  const [vx, vy, vw, vh] = visible;
+  const ix0 = Math.max(0, Math.min(1, -vx / vw)), iy0 = Math.max(0, Math.min(1, -vy / vh));
+  const ix1 = Math.max(ix0, Math.min(1, (1 - vx) / vw)), iy1 = Math.max(iy0, Math.min(1, (1 - vy) / vh));
+  const pct = (v: number) => `${v * 100}%`;
+  const spot: Record<LayerDrag, React.CSSProperties | undefined> = {
+    move: undefined,
+    tl: { left: `calc(${pct(ix0)} - 7px)`, top: `calc(${pct(iy0)} - 7px)` },
+    tr: { left: `calc(${pct(ix1)} - 7px)`, top: `calc(${pct(iy0)} - 7px)`, right: "auto" },
+    bl: { left: `calc(${pct(ix0)} - 7px)`, top: `calc(${pct(iy1)} - 7px)`, bottom: "auto" },
+    br: { left: `calc(${pct(ix1)} - 7px)`, top: `calc(${pct(iy1)} - 7px)`, right: "auto", bottom: "auto" },
+    "crop-l": { left: `calc(${pct(ix0)} - 5px)`, top: pct((iy0 + iy1) / 2) },
+    "crop-r": { left: `calc(${pct(ix1)} - 3px)`, top: pct((iy0 + iy1) / 2), right: "auto" },
+    "crop-t": { top: `calc(${pct(iy0)} - 5px)`, left: pct((ix0 + ix1) / 2) },
+    "crop-b": { top: `calc(${pct(iy1)} - 3px)`, left: pct((ix0 + ix1) / 2), bottom: "auto" },
+  };
+  const inset = ix0 > 0.001 || iy0 > 0.001 || ix1 < 0.999 || iy1 < 0.999;
+  const handle = (mode: LayerDrag) => <b key={mode} className={"h " + mode} style={inset ? spot[mode] : undefined} onPointerDown={down(mode)} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} />;
   const isCropped = t.crop[2] < 0.999 || t.crop[3] < 0.999;
   return (
     <div
@@ -409,7 +426,7 @@ function LayerBox({ editor, clip, main = false }: { editor: Editor; clip: Clip; 
       style={{ left: `${visible[0] * 100}%`, top: `${visible[1] * 100}%`, width: `${visible[2] * 100}%`, height: `${visible[3] * 100}%` }}
       onPointerDown={down("move")} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel} onClick={(e) => e.stopPropagation()}
     >
-      <div className="layer-tools" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="layer-tools" style={inset ? { left: `calc(${pct(ix0)} + 6px)`, top: `calc(${pct(iy0)} + 6px)` } : undefined} onPointerDown={(e) => e.stopPropagation()}>
         <button className={cropping ? "on" : ""} onClick={() => setCropping(!cropping)}>{cropping ? "Done cropping" : "Crop"}</button>
         {isCropped && <button onClick={() => void editor.run("Remove crop", [{ op: "clip.set", clipId: clip.id, transform: { crop: [0, 0, 1, 1] } }])}>Reset crop</button>}
         {main && (Math.abs(t.scale - 1) > 0.001 || Math.abs(t.x) > 0.001 || Math.abs(t.y) > 0.001) && <button onClick={() => void editor.run("Reset size and position", [{ op: "clip.set", clipId: clip.id, transform: { x: 0, y: 0, scale: 1 } }])}>Reset size</button>}

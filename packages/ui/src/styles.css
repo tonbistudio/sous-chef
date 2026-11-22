@@ -3,6 +3,7 @@
   --bg: #0e0e10;
   --marble: url("./assets/marble-dark.jpg");
   --panel: rgba(17, 17, 19, 0.86);
+  --pane: rgba(12, 12, 14, 0.42);
   --panel-solid: #141416;
   --chrome: rgba(12, 12, 14, 0.55);
   --raised: rgba(255, 255, 255, 0.07);
@@ -39,6 +40,7 @@
   --bg: #efece6;
   --marble: url("./assets/marble-light.jpg");
   --panel: rgba(250, 248, 244, 0.86);
+  --pane: rgba(250, 248, 244, 0.36);
   --panel-solid: #f7f5f0;
   --chrome: rgba(250, 248, 244, 0.5);
   --raised: rgba(0, 0, 0, 0.05);
@@ -114,7 +116,7 @@ input:not([type="range"]) {
   grid-template-rows: auto minmax(0, 1fr) minmax(216px, auto);
   grid-template-areas: "top top top" "bin preview side" "timeline timeline timeline";
 }
-.topbar { grid-area: top; display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.topbar { grid-area: top; display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--pane); border-bottom: 1px solid var(--line); }
 .project-name { font-size: 14px; margin: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
 .status { font-size: 12px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line); }
@@ -122,11 +124,11 @@ input:not([type="range"]) {
 .status.off { color: var(--danger); }
 .rev { color: var(--dim); font-variant-numeric: tabular-nums; font-size: 12px; min-width: 28px; text-align: right; }
 
-.bin, .inspector { background: var(--panel); padding: 10px; overflow: auto; min-height: 0; }
+.bin, .inspector { background: transparent; padding: 10px; overflow: auto; min-height: 0; }
 .bin { grid-area: bin; border-right: 1px solid var(--line); }
-.leftcol { grid-area: bin; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--line); }
+.leftcol { grid-area: bin; display: flex; flex-direction: column; min-height: 0; background: var(--pane); border-right: 1px solid var(--line); }
 .leftcol .bin { grid-area: auto; flex: 1; border-right: 0; }
-.side { grid-area: side; border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+.side { grid-area: side; border-left: 1px solid var(--line); background: var(--pane); display: flex; flex-direction: column; min-height: 0; }
 .inspector { flex: 1; }
 .bin header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .media { display: flex; flex-direction: column; gap: 6px; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
@@ -155,7 +157,7 @@ input:not([type="range"]) {
 .time { font-variant-numeric: tabular-nums; margin-left: 10px; font-size: 14px; }
 
 /* ---- timeline */
-.timeline { grid-area: timeline; background: var(--panel); border-top: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.timeline { grid-area: timeline; background: var(--pane); border-top: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
 .timeline-tools { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-bottom: 1px solid var(--line); }
 .timeline-tools .label { color: var(--dim); }
 .timeline-tools .hint { color: var(--dim); margin-left: auto; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -678,7 +680,7 @@ button.link:hover { color: var(--accent); }
 /* ---------- Library view ---------- */
 button.link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .lib-view { grid-column: 2 / -1; grid-row: 2 / -1; display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 0; background: var(--bg); }
-.lib-nav { border-right: 1px solid var(--line); padding: 20px 12px; display: flex; flex-direction: column; gap: 2px; background: var(--panel); }
+.lib-nav { border-right: 1px solid var(--line); padding: 20px 12px; display: flex; flex-direction: column; gap: 2px; background: var(--pane); }
 .lib-nav-head { padding: 0 10px 16px; }
 .lib-nav-head h1 { font-size: 18px; font-weight: 650; letter-spacing: -0.01em; }
 .lib-nav-head p { color: var(--dim); font-size: 12px; margin-top: 2px; }
