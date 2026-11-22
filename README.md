@@ -40,6 +40,11 @@ work but are less tested.
 - **Agents on other computers.** A Hermes on a VPS, a Spark or in the cloud can edit
   your projects through a tunnel, with a revocable key per agent; the chat panel can
   talk to it too. See [docs/remote-agents.md](docs/remote-agents.md).
+- **B-roll** in the Library: describe a shot, pick Image or Video, and make it on your
+  own machine with [Imagination Studio](https://github.com/drowzeys/Imagination-Studio-by-keys-Wasserman)
+  or in the cloud with Hermes's image and video tools, at default settings. Insert it at
+  the playhead in one click; ask Hermes in the chat for anything finer.
+  See [docs/broll.md](docs/broll.md).
 - Every edit saves immediately, with undo history and autosave snapshots.
 
 ## How it fits together

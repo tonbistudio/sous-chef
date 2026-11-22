@@ -14,13 +14,14 @@ export function setDraggedMedia(m: Media | null): void {
  * `target` is the track it was dropped on, when any. The main track takes
  * videos (later clips move right to make room). Other tracks take what fits
  * them if that stretch is free; otherwise the first free track of the right
- * kind is used, or a new one is made.
+ * kind is used, or a new one is made. `pre` runs first in the same undo step
+ * (for example a media.add for a file not in the project yet).
  */
-export async function placeMedia(editor: Editor, m: Media, at: number, target?: string, mode: "video" | "audio" = m.kind === "audio" ? "audio" : "video"): Promise<void> {
+export async function placeMedia(editor: Editor, m: Media, at: number, target?: string, mode: "video" | "audio" = m.kind === "audio" ? "audio" : "video", pre: Op[] = []): Promise<void> {
   at = Math.max(0, Math.round(at));
   const name = baseName(m.path);
   if (target === "main" && m.kind === "video") {
-    const created = await editor.run(`Add ${name} at ${clock(at)}`, [{ op: "clip.add", trackId: "main", mediaId: m.id, startUs: at }]);
+    const created = await editor.run(`Add ${name} at ${clock(at)}`, [...pre, { op: "clip.add", trackId: "main", mediaId: m.id, startUs: at }]);
     const clipId = created?.[created.length - 1];
     if (clipId) editor.selectClip(clipId);
     return;
@@ -32,7 +33,7 @@ export async function placeMedia(editor: Editor, m: Media, at: number, target?: 
     const t = id ? editor.project.tracks.find((x) => x.id === id) : undefined;
     return t && t.kind === kind && !busy(t.id) ? t.id : undefined;
   };
-  const ops: Op[] = [];
+  const ops: Op[] = [...pre];
   let trackId = fits(target) ?? editor.project.tracks.find((t) => t.kind === kind && !busy(t.id))?.id;
   if (!trackId) {
     trackId = `${kind[0]}${Date.now().toString(36).slice(-5)}`;

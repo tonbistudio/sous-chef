@@ -146,6 +146,27 @@ export interface PublishSettings {
 }
 
 /** A video kept in the library by its path, for pointing Hermes at. */
+export type BrollEngine = "local" | "cloud";
+export type BrollKind = "image" | "video";
+export interface BrollItem {
+  id: string;
+  engine: BrollEngine;
+  kind: BrollKind;
+  prompt: string;
+  status: "working" | "done" | "failed";
+  createdAt: string;
+  progress?: number;
+  error?: string;
+  path?: string;
+  durationUs?: number;
+  width?: number | null;
+  height?: number | null;
+}
+export interface BrollSettings {
+  studioUrl: string;
+  hasKey: boolean;
+}
+
 export interface Reference {
   id: string;
   path: string;
@@ -158,7 +179,7 @@ export interface Reference {
   missing?: boolean;
 }
 
-export type ServerEvent = { type: "publish"; projectId: string } | { type: "library" } | { type: "chat"; projectId: string; chat: ChatState } | { type: "cache"; projectId: string } | { type: "proposals"; projectId: string } | ChangeEvent | { type: "job"; job: Job } | { type: "export"; job: ExportJob };
+export type ServerEvent = { type: "publish"; projectId: string } | { type: "library" } | { type: "broll" } | { type: "chat"; projectId: string; chat: ChatState } | { type: "cache"; projectId: string } | { type: "proposals"; projectId: string } | ChangeEvent | { type: "job"; job: Job } | { type: "export"; job: ExportJob };
 
 /** Editor-wide defaults kept in preferences.json. */
 export interface Prefs {
@@ -258,6 +279,13 @@ export const api = {
   chatClear: (pid: string) => call<ChatState>("POST", `/api/p/${pid}/chat/clear`, {}),
   library: () => call<LibraryState>("GET", "/api/library"),
   references: () => call<{ references: Reference[] }>("GET", "/api/library/references"),
+  broll: () => call<{ items: BrollItem[]; settings: BrollSettings }>("GET", "/api/library/broll"),
+  makeBroll: (engine: BrollEngine, kind: BrollKind, prompt: string) => call<BrollItem>("POST", "/api/library/broll", { engine, kind, prompt }),
+  cancelBroll: (id: string) => call<{ ok: boolean }>("POST", `/api/library/broll/${encodeURIComponent(id)}/cancel`, {}),
+  removeBroll: (id: string) => call<{ ok: boolean }>("POST", `/api/library/broll/${encodeURIComponent(id)}/delete`, {}),
+  brollThumbUrl: (id: string) => `/api/library/broll/${encodeURIComponent(id)}/thumb?token=${token}`,
+  saveBrollSettings: (patch: { studioUrl?: string; key?: string }) => call<BrollSettings>("POST", "/api/library/broll/settings", patch),
+  checkStudio: () => call<{ ok: boolean; message: string }>("POST", "/api/library/broll/check", {}),
   addReference: (path: string, note = "") => call<Reference>("POST", "/api/library/references", { path, note }),
   updateReference: (id: string, patch: { note?: string; name?: string }) => call<Reference>("POST", `/api/library/references/${encodeURIComponent(id)}`, patch),
   removeReference: (id: string) => call<{ ok: boolean }>("POST", `/api/library/references/${encodeURIComponent(id)}/delete`, {}),

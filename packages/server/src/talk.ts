@@ -47,6 +47,24 @@ async function runtimeCommand(): Promise<string[]> {
   return cmd.slice(0, 4) as string[];
 }
 
+/**
+ * Starts one of Sous Chef's Python helpers inside Hermes's own Python, with the chosen profile's
+ * settings ("" or "default": the user's default profile), so it can call Hermes's tools directly.
+ */
+export async function spawnInHermes(script: string, profile: string): Promise<ChildProcess> {
+  const usable = profile === "default" ? "" : profile;
+  const [python, isolate, , code] = await runtimeCommand();
+  if (!code!.includes(START) || !code!.includes("import hermes_bootstrap;")) throw new Error("This Hermes Agent starts in a way Sous Chef doesn't know; update it with `hermes update`.");
+  // The chosen profile's settings: point HERMES_HOME at it before Hermes reads anything.
+  const pick = usable ? `import hermes_constants as _sc; os.environ['HERMES_HOME'] = os.path.join(str(_sc.get_default_hermes_root()), 'profiles', ${JSON.stringify(usable)}); ` : "";
+  const run = code!
+    .replace("import hermes_bootstrap;", `${pick}import hermes_bootstrap;`)
+    .replace(START, `sys.argv = [${JSON.stringify(script)}]; runpy.run_path(${JSON.stringify(script)}, run_name='__main__')`);
+  const env: NodeJS.ProcessEnv = { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" };
+  delete env.HERMES_HOME;
+  return spawn(python!, [isolate!, "-c", run], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env });
+}
+
 class VoiceWorker {
   private child: ChildProcess | null = null;
   private ready: Promise<void> | null = null;
@@ -68,16 +86,7 @@ class VoiceWorker {
   }
 
   private async start(profile: string): Promise<void> {
-    const [python, isolate, , code] = await runtimeCommand();
-    if (!code!.includes(START) || !code!.includes("import hermes_bootstrap;")) throw new Error("This Hermes Agent starts in a way Sous Chef doesn't know, so voice is unavailable.");
-    // The chosen profile's settings: point HERMES_HOME at it before Hermes reads anything.
-    const pick = profile ? `import hermes_constants as _sc; os.environ['HERMES_HOME'] = os.path.join(str(_sc.get_default_hermes_root()), 'profiles', ${JSON.stringify(profile)}); ` : "";
-    const run = code!
-      .replace("import hermes_bootstrap;", `${pick}import hermes_bootstrap;`)
-      .replace(START, `sys.argv = [${JSON.stringify(SCRIPT)}]; runpy.run_path(${JSON.stringify(SCRIPT)}, run_name='__main__')`);
-    const env: NodeJS.ProcessEnv = { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" };
-    delete env.HERMES_HOME;
-    const child = spawn(python!, [isolate!, "-c", run], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env });
+    const child = await spawnInHermes(SCRIPT, profile);
     this.child = child;
     this.profile = profile;
     let buffer = "";

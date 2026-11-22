@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, subscribe, type LibraryState, type PublishSettings, type Reference, type TemplateSummary } from "./api";
+import { Broll } from "./Broll";
 import { FilePicker } from "./FilePicker";
 import { desktop } from "./desktop";
 import { Icon, type IconName } from "./icons";
 import { clock } from "./time";
 import type { Editor } from "./useEditor";
 
-type SectionId = "timeline" | "references" | "publishing" | "memory" | "projects";
+type SectionId = "timeline" | "broll" | "references" | "publishing" | "memory" | "projects";
 const SECTIONS: { id: SectionId; icon: IconName; title: string; blurb: string }[] = [
   { id: "timeline", icon: "layers", title: "Timeline templates", blurb: "Intros, lower thirds, layouts: pieces of a timeline to drop into any project." },
+  { id: "broll", icon: "image", title: "B-roll", blurb: "Pictures and clips made to cut away to: on your own machine with Imagination Studio, or in the cloud with Hermes." },
   { id: "references", icon: "film", title: "Reference videos", blurb: "Videos to point Hermes at: \u201ccut it like this one\u201d. Only the path is saved; nothing is copied." },
   { id: "publishing", icon: "doc", title: "Description and thumbnails", blurb: "The format and style Hermes follows in Publish." },
   { id: "memory", icon: "memory", title: "What Hermes remembers", blurb: "Notes about how you edit, carried into every project." },
@@ -53,6 +55,7 @@ export function Library({ editor }: { editor: Editor }) {
   };
   const count: Record<SectionId, string> = {
     timeline: lib ? String(lib.templates.length) : "",
+    broll: "",
     references: refs ? String(refs.length) : "",
     publishing: "",
     memory: "",
@@ -76,6 +79,7 @@ export function Library({ editor }: { editor: Editor }) {
       </nav>
       <div className="lib-scroll" ref={scroller} onScroll={onScroll}>
         <Section id="timeline"><TimelineTemplates editor={editor} templates={lib?.templates ?? null} /></Section>
+        <Section id="broll"><Broll editor={editor} /></Section>
         <Section id="references"><References editor={editor} refs={refs} onChange={load} /></Section>
         <Section id="publishing"><PublishTemplates editor={editor} /></Section>
         <Section id="memory"><Memory editor={editor} saved={lib?.memory ?? null} /></Section>

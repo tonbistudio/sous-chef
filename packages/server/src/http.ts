@@ -20,6 +20,7 @@ import { speak, spokenText, transcribe } from "./talk.js";
 import { judgeRetakes } from "./retakes.js";
 import { captureTemplate, type Op } from "@sous-chef/core";
 import { deleteTemplate, getTemplate, libraryBriefing, listTemplates as listLibraryTemplates, logProjectOpen, noteProject, readMemory, readPreferences, readProjectLog, hermesProfiles, saveTemplate, templateId, writeMemory, writePreferences } from "./library.js";
+import { brollBriefing, brollThumb, cancelBroll, checkStudio, listBroll, onBrollChange, readBrollSettings, removeBroll, startBroll, writeBrollSettings } from "./broll.js";
 import { addReference, listReferences, referenceFrame, referencesBriefing, referenceThumb, removeReference, updateReference } from "./references.js";
 import { frameOf, listTemplates, overlayKey, renderOverlay, renderedOverlays, staleOverlays } from "./overlays.js";
 import { Jobs, type Job } from "./jobs.js";
@@ -243,11 +244,12 @@ async function loadTranscripts(p: { dir: string; project: { media: { id: string 
 
 export async function startServer(options: ServerOptions): Promise<RunningServer> {
   const sockets = new Set<WebSocket>();
-  const broadcast = (event: ChangeEvent | { type: "export"; job: ExportJob } | { type: "job"; job: Job } | { type: "cache"; projectId: string } | { type: "proposals"; projectId: string } | { type: "chat"; projectId: string; chat: ChatState } | { type: "library" } | { type: "publish"; projectId: string }) => {
+  const broadcast = (event: ChangeEvent | { type: "export"; job: ExportJob } | { type: "job"; job: Job } | { type: "cache"; projectId: string } | { type: "proposals"; projectId: string } | { type: "chat"; projectId: string; chat: ChatState } | { type: "library" } | { type: "broll" } | { type: "publish"; projectId: string }) => {
     const text = JSON.stringify(event);
     for (const ws of sockets) if (ws.readyState === ws.OPEN) ws.send(text);
   };
   const store = new Store(broadcast);
+  onBrollChange(() => broadcast({ type: "broll" }));
   const chats = new Chats((projectId, chat) => broadcast({ type: "chat", projectId, chat }));
   const exporter = new Exporter((job) => broadcast({ type: "export", job }));
   const jobs = new Jobs((job) => broadcast({ type: "job", job }));
@@ -517,6 +519,52 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         return sendJson(res, 200, s);
       } catch (err) {
         throw new HttpError(400, err instanceof Error ? err.message : String(err), "invalid");
+      }
+    }
+    if (parts[1] === "library" && parts[2] === "broll") {
+      // B-roll made at default settings: /broll, /broll/settings, /broll/check, /broll/:id/thumb, .../cancel, .../delete
+      const id = parts[3];
+      const fail = (err: unknown, status = 400) => new HttpError(status, err instanceof Error ? err.message : String(err), status === 404 ? "not_found" : "invalid");
+      if (!id && method === "GET") return sendJson(res, 200, { items: await listBroll(), settings: await readBrollSettings() });
+      if (!id && method === "POST") {
+        const body = await readJson(req);
+        try {
+          const item = await startBroll(body.engine, body.kind, body.prompt);
+          broadcast({ type: "broll" });
+          return sendJson(res, 200, item);
+        } catch (err) {
+          throw fail(err);
+        }
+      }
+      if (id === "settings" && method === "POST") {
+        try {
+          return sendJson(res, 200, await writeBrollSettings(await readJson(req)));
+        } catch (err) {
+          throw fail(err);
+        }
+      }
+      if (id === "check" && method === "POST") return sendJson(res, 200, await checkStudio());
+      if (id && parts[4] === "thumb" && method === "GET") {
+        try {
+          const t = await brollThumb(id);
+          res.writeHead(200, { "content-type": t.type, "content-length": t.data.length, "cache-control": "private, max-age=86400" });
+          res.end(t.data);
+          return;
+        } catch (err) {
+          throw fail(err, 404);
+        }
+      }
+      if (id && parts[4] === "cancel" && method === "POST") {
+        await cancelBroll(id).catch((err) => {
+          throw fail(err, 404);
+        });
+        return sendJson(res, 200, { ok: true });
+      }
+      if (id && parts[4] === "delete" && method === "POST") {
+        await removeBroll(id).catch((err) => {
+          throw fail(err, 404);
+        });
+        return sendJson(res, 200, { ok: true });
       }
     }
     if (parts[1] === "library" && parts[2] === "references") {
@@ -888,7 +936,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         ].join("");
         const images = Array.isArray(body.images) ? body.images.map(String).filter((f: string) => CHAT_IMAGE.test(f) && existsSync(path.join(chatImagesDir(p.dir), f))).slice(0, 8) : [];
         try {
-          await chats.send(p.id, p.dir, text, context, async () => [await libraryBriefing(p.dir), await referencesBriefing()].filter(Boolean).join("\n\n"), images);
+          await chats.send(p.id, p.dir, text, context, async () => [await libraryBriefing(p.dir), await referencesBriefing(), await brollBriefing()].filter(Boolean).join("\n\n"), images);
         } catch (err) {
           throw new HttpError(409, err instanceof Error ? err.message : String(err), "conflict");
         }
