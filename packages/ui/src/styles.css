@@ -144,7 +144,7 @@ input:not([type="range"]) {
 .cuts { margin: 6px 0 10px; }
 
 .preview { grid-area: preview; display: flex; flex-direction: column; min-height: 0; padding: 12px; gap: 10px; }
-.stage-wrap { flex: 1; min-height: 0; display: grid; place-items: center; container-type: size; }
+.stage-wrap { flex: 1; min-height: 0; display: grid; place-items: center; container-type: size; padding: 4px; box-sizing: border-box; }
 .stage { position: relative; width: min(100cqw, calc(100cqh * var(--ar, 1.7778))); background: #000; border-radius: 4px; overflow: hidden; }
 .stage-host { position: absolute; inset: 0; overflow: hidden; cursor: pointer; }
 .world { position: absolute; inset: 0; transform-origin: 0 0; will-change: transform; }
@@ -552,7 +552,7 @@ button.play.round .icon { margin-left: 1px; }
 .transport .time { justify-self: start; margin-left: 4px; }
 .transport-buttons { display: inline-flex; align-items: center; gap: 10px; }
 .transport .rec-group { justify-self: end; }
-.stage { border-radius: var(--r); box-shadow: 0 6px 30px rgba(0, 0, 0, 0.35); }
+.stage { border-radius: var(--r); box-shadow: 0 0 0 2px var(--accent), 0 6px 30px rgba(0, 0, 0, 0.35); }
 
 .add-group { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
 .add-plus { display: inline-grid; place-items: center; width: 22px; height: 22px; margin: 0 2px 0 3px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); }
@@ -762,3 +762,6 @@ button.theme-toggle { display: inline-grid; place-items: center; padding: 5px 7p
 .start h1.brand .theme-toggle { font-size: 13px; }
 /* Clip names sit on a dark pill over the filmstrip in both themes. */
 .clip-name { color: #f2f1ee; }
+
+/* Dark mode: the preview sits on light marble so a black frame stands out from the black stone. */
+:root:not([data-theme="light"]) .stage-wrap { background: #ece8e1 url("./assets/marble-light.jpg") center / cover; border-radius: var(--r); padding: 12px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); }
