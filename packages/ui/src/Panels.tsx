@@ -8,6 +8,7 @@ import { api } from "./api";
 import { desktop } from "./desktop";
 import { FilePicker } from "./FilePicker";
 import { VoiceoverButton } from "./Voiceover";
+import { Markup } from "./Markup";
 import { baseName, clock, S } from "./time";
 import type { Editor } from "./useEditor";
 import { placeMedia, setDraggedMedia } from "./dragMedia";
@@ -175,7 +176,9 @@ function PlayButton({ editor }: { editor: Editor }) {
 
 export function Preview({ editor }: { editor: Editor }) {
   const host = useRef<HTMLDivElement>(null);
+  const stageEl = useRef<HTMLDivElement>(null);
   const { player, plan } = editor;
+  const [marking, setMarking] = useState(false);
 
   useEffect(() => {
     player.attach(host.current);
@@ -185,10 +188,23 @@ export function Preview({ editor }: { editor: Editor }) {
     };
   }, [player]);
 
+  // D: draw on the frame to show Hermes what you mean.
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if (e.key.toLowerCase() !== "d" || e.ctrlKey || e.metaKey || e.altKey || e.repeat || plan.durationUs === 0) return;
+      e.preventDefault();
+      setMarking((m) => !m);
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [plan.durationUs]);
+
   return (
     <section className="preview" aria-label="Preview">
       <div className="stage-wrap">
-      <div className="stage" style={{ aspectRatio: `${plan.width} / ${plan.height}`, ["--ar" as never]: plan.width / plan.height }}>
+      <div ref={stageEl} className={"stage" + (marking ? " marking" : "")} style={{ aspectRatio: `${plan.width} / ${plan.height}`, ["--ar" as never]: plan.width / plan.height }}>
         <div
           className="stage-host" ref={host}
           onClick={(e) => {
@@ -250,6 +266,7 @@ export function Preview({ editor }: { editor: Editor }) {
           return c && c.type === "clip" && (track?.kind === "video" || track?.kind === "main") ? <LayerBox key={c.id} editor={editor} clip={c} main={track.kind === "main"} /> : null;
         })()}
         {plan.durationUs === 0 && <div className="stage-empty">Nothing on the timeline yet</div>}
+        {marking && stageEl.current && <Markup editor={editor} stage={stageEl.current} onClose={() => setMarking(false)} />}
       </div>
       </div>
       <div className="transport">
@@ -259,7 +276,16 @@ export function Preview({ editor }: { editor: Editor }) {
           <PlayButton editor={editor} />
           <button className="round ghost" onClick={() => player.seek(Math.min(plan.durationUs, player.tlUs + 5 * S))} disabled={plan.durationUs === 0} title="Forward 5 seconds (Shift+Right). Right arrow steps one frame." aria-label="Forward 5 seconds"><Icon name="fwd5" size={20} /></button>
         </span>
-        <VoiceoverButton editor={editor} />
+        <span className="transport-right">
+          <button
+            className={"ghost markup-toggle" + (marking ? " on" : "")} disabled={plan.durationUs === 0}
+            onClick={() => setMarking((m) => !m)}
+            title="Draw on the frame to show Hermes what you mean (D)"
+          >
+            <Icon name="pen" /> Draw on frame
+          </button>
+          <VoiceoverButton editor={editor} />
+        </span>
       </div>
     </section>
   );

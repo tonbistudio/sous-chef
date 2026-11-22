@@ -767,3 +767,35 @@ button.theme-toggle { display: inline-grid; place-items: center; padding: 5px 7p
 
 /* Dark mode: the preview sits on light marble so a black frame stands out from the black stone. */
 :root:not([data-theme="light"]) .stage-wrap { background: #ece8e1 url("./assets/marble-light.jpg") center / cover; border-radius: var(--r); padding: 12px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); }
+
+/* Draw on the frame for Hermes */
+.transport .transport-right { justify-self: end; display: inline-flex; align-items: center; gap: 6px; }
+.markup-toggle { display: inline-flex; align-items: center; gap: 6px; }
+.markup-toggle.on { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.stage.marking { box-shadow: 0 0 0 3px var(--accent), 0 6px 30px rgba(0, 0, 0, 0.35); }
+.markup { position: absolute; inset: 0; z-index: 90; }
+.markup-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+.markup-canvas.tool-point { cursor: cell; }
+.markup-bar { transition: opacity 0.15s ease; position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 4px; padding: 5px 6px; border-radius: 999px;
+  background: rgba(16, 16, 18, 0.88); border: 1px solid rgba(255, 255, 255, 0.16); box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45); color: #f2f1ee; white-space: nowrap; }
+/* Out of the way while drawing, so marks near the top stay visible; full strength when the pointer is on it. */
+.markup.drawing .markup-bar { opacity: 0.12; pointer-events: none; }
+.markup:not(:hover) .markup-bar, .markup-bar:not(:hover) { opacity: 0.55; }
+.markup-bar:hover { opacity: 1; }
+.markup-bar button { background: transparent; border: 1px solid transparent; color: inherit; padding: 4px 8px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px; }
+.markup-bar button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+.markup-bar button.on { background: rgba(249, 163, 2, 0.25); border-color: #f9a302; }
+.markup-bar button.primary { background: #f9a302; color: #1b1405; font-weight: 600; }
+.markup-bar button.primary:disabled { opacity: 0.5; }
+.markup-bar .swatch { width: 18px; height: 18px; padding: 0; border: 2px solid rgba(255, 255, 255, 0.35); }
+.markup-bar .swatch.on { border-color: #fff; box-shadow: 0 0 0 2px #f9a302; }
+.markup-sep { width: 1px; height: 18px; background: rgba(255, 255, 255, 0.2); margin: 0 3px; }
+.markup-hint { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); padding: 5px 12px; border-radius: 999px; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 12px; pointer-events: none; }
+
+/* Talking to Hermes */
+.talk-btn { width: 30px; height: 30px; padding: 0; display: inline-grid; place-items: center; }
+.talk-btn.on { background: #c0392b; border-color: #e2685d; color: #fff; animation: talk-pulse 1.2s ease-in-out infinite; }
+.talk-btn.ghost.on { background: rgba(249, 163, 2, 0.2); border-color: var(--accent); color: var(--accent); animation: none; }
+.talk-btn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: talk-pulse 0.9s ease-in-out infinite; }
+@keyframes talk-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(226, 104, 93, 0.5); } 50% { box-shadow: 0 0 0 6px rgba(226, 104, 93, 0); } }
+.chat-pic.marked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }

@@ -1,7 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { takeAttachments } from "./attach";
+import { Icon } from "./icons";
+import { local } from "./storage";
 import { baseName } from "./time";
 import type { Editor } from "./useEditor";
+
+const MAX_TALK_MS = 120_000;
 
 const IDEAS = ["Do a rough cut", "Cut the silences over one second", "Add a lower third with my name at the start", "Turn on captions"];
 
@@ -10,8 +15,9 @@ export function Chat({ editor }: { editor: Editor }) {
   const { chat, pid } = editor;
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
-  /** Pictures waiting to go with the next message. */
-  const [pics, setPics] = useState<{ file: string; url: string }[]>([]);
+  /** Pictures waiting to go with the next message; a marked-up frame carries its marks in words. */
+  const [pics, setPics] = useState<{ file: string; url: string; note?: string }[]>([]);
+  useEffect(() => takeAttachments((a) => setPics((p) => [...p, a].slice(-8))), []);
   const [uploading, setUploading] = useState(0);
   const [dropping, setDropping] = useState(false);
   const [profiles, setProfiles] = useState<{ profiles: string[]; current: string } | null>(null);
@@ -38,9 +44,122 @@ export function Chat({ editor }: { editor: Editor }) {
     end.current?.scrollIntoView({ block: "end" });
   }, [chat.messages.length, last?.text.length, chat.running]);
 
+  // ---- Talking to Hermes, with the chosen profile's own speech-to-text and voice ----
+  const [talk, setTalk] = useState<"idle" | "recording" | "transcribing">("idle");
+  const [speakOn, setSpeakOn] = useState(() => local.get("sous.speak") === "1");
+  const rec = useRef<{ recorder: MediaRecorder; stream: MediaStream; chunks: Blob[]; sendAfter: boolean; timer: number } | null>(null);
+  const audio = useRef<HTMLAudioElement | null>(null);
+  const textRef = useRef(text);
+  textRef.current = text;
+  const sendRef = useRef<(m: string) => Promise<void>>(async () => {});
+
+  const stopSpeaking = () => {
+    audio.current?.pause();
+    if (audio.current) URL.revokeObjectURL(audio.current.src);
+    audio.current = null;
+  };
+
+  const startTalking = useCallback(async (sendAfter: boolean) => {
+    if (rec.current) return;
+    stopSpeaking();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      const type = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
+      const recorder = new MediaRecorder(stream, { mimeType: type });
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+      const timer = window.setTimeout(() => stopTalking(), MAX_TALK_MS);
+      rec.current = { recorder, stream, chunks, sendAfter, timer };
+      recorder.start(250);
+      setTalk("recording");
+    } catch (e) {
+      editor.notify(e instanceof Error && e.name === "NotAllowedError" ? "Sous Chef isn't allowed to use the microphone." : `Could not start the microphone: ${e instanceof Error ? e.message : String(e)}`, "error");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
+
+  const stopTalking = useCallback(() => {
+    const r = rec.current;
+    if (!r) return;
+    rec.current = null;
+    window.clearTimeout(r.timer);
+    r.recorder.onstop = async () => {
+      r.stream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(r.chunks, { type: "audio/webm" });
+      if (blob.size < 1500) {
+        setTalk("idle");
+        return;
+      }
+      setTalk("transcribing");
+      try {
+        const said = (await api.hearSpeech(blob)).trim();
+        if (!said) editor.notify("Hermes didn't catch any words.", "info");
+        else if (r.sendAfter) await sendRef.current([textRef.current.trim(), said].filter(Boolean).join(" "));
+        else setText((t) => (t.trim() ? `${t.trim()} ${said}` : said));
+      } catch (e) {
+        editor.notify(e instanceof Error ? e.message : String(e), "error");
+      } finally {
+        setTalk("idle");
+      }
+    };
+    r.recorder.stop();
+  }, [editor]);
+
+  // Hold V anywhere in the editor (outside a text box) to talk; letting go sends it.
+  useEffect(() => {
+    const editable = (t: EventTarget | null) => t instanceof HTMLElement && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+    const down = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "v" || e.repeat || e.ctrlKey || e.metaKey || e.altKey || editable(e.target)) return;
+      e.preventDefault();
+      void startTalking(true);
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "v" || !rec.current?.sendAfter) return;
+      e.preventDefault();
+      stopTalking();
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, [startTalking, stopTalking]);
+  useEffect(() => () => {
+    const r = rec.current;
+    if (r) {
+      window.clearTimeout(r.timer);
+      r.recorder.onstop = null;
+      r.recorder.stop();
+      r.stream.getTracks().forEach((t) => t.stop());
+    }
+    stopSpeaking();
+  }, []);
+
+  // Read Hermes's reply aloud when it finishes, if the speaker is on.
+  const wasRunning = useRef(chat.running);
+  useEffect(() => {
+    const finished = wasRunning.current && !chat.running;
+    wasRunning.current = chat.running;
+    const reply = chat.messages[chat.messages.length - 1];
+    if (!finished || !speakOn || reply?.role !== "assistant" || !reply.text.trim()) return;
+    let gone = false;
+    void api.speak(reply.text).then((blob) => {
+      if (gone) return;
+      stopSpeaking();
+      const a = new Audio(URL.createObjectURL(blob));
+      audio.current = a;
+      a.onended = () => stopSpeaking();
+      void a.play();
+    }).catch((e: unknown) => editor.notify(e instanceof Error ? e.message : String(e), "error"));
+    return () => void (gone = true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.running]);
+
   const send = async (message: string) => {
     const body = message.trim();
     const attached = pics;
+    stopSpeaking();
     if ((!body && !attached.length) || chat.running || sending || uploading) return;
     setSending(true);
     setText("");
@@ -55,7 +174,8 @@ export function Chat({ editor }: { editor: Editor }) {
         : selectedOverlayId ? `overlay ${selectedOverlayId}`
         : editor.range ? `range ${(Math.min(...editor.range) / 1e6).toFixed(2)}s to ${(Math.max(...editor.range) / 1e6).toFixed(2)}s`
         : undefined;
-      await api.chatSend(pid, { text: body, playheadUs: Math.round(editor.player.tlUs), selected, ...(attached.length ? { images: attached.map((p) => p.file) } : {}) });
+      const marks = attached.map((p) => p.note).filter(Boolean).join(" | ");
+      await api.chatSend(pid, { text: body, playheadUs: Math.round(editor.player.tlUs), selected, ...(attached.length ? { images: attached.map((p) => p.file) } : {}), ...(marks ? { marks } : {}) });
     } catch (e) {
       setText(body);
       setPics(attached);
@@ -64,6 +184,7 @@ export function Chat({ editor }: { editor: Editor }) {
       setSending(false);
     }
   };
+  sendRef.current = send;
 
   return (
     <div className="chat" aria-label="Chat with Hermes">
@@ -116,8 +237,8 @@ export function Chat({ editor }: { editor: Editor }) {
         {(pics.length > 0 || uploading > 0) && (
           <div className="chat-pics">
             {pics.map((p) => (
-              <span key={p.file} className="chat-pic">
-                <img src={p.url} alt="Picture to send" />
+              <span key={p.file} className={"chat-pic" + (p.note ? " marked" : "")} title={p.note ? "Your drawing on the frame; Hermes gets the positions too" : undefined}>
+                <img src={p.url} alt={p.note ? "Marked-up frame to send" : "Picture to send"} />
                 <button type="button" title="Remove" onClick={() => setPics((all) => all.filter((x) => x.file !== p.file))}>×</button>
               </span>
             ))}
@@ -125,7 +246,7 @@ export function Chat({ editor }: { editor: Editor }) {
           </div>
         )}
         <textarea
-          value={text} rows={2} placeholder="Tell Hermes what to change… (paste or drop pictures here)" aria-label="Message to Hermes"
+          value={text} rows={2} placeholder={talk === "recording" ? "Listening… (let go of V, or press the mic to stop)" : talk === "transcribing" ? "Turning your words into text…" : "Tell Hermes what to change… Hold V to talk, D to draw on the frame"} aria-label="Message to Hermes"
           onChange={(e) => setText(e.target.value)}
           onPaste={(e) => {
             const files = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith("image/"));
@@ -143,6 +264,27 @@ export function Chat({ editor }: { editor: Editor }) {
           }}
         />
         <div className="row">
+          <button
+            type="button" className={"round talk-btn" + (talk === "recording" ? " on" : "")} disabled={talk === "transcribing"}
+            onClick={() => (talk === "recording" ? stopTalking() : void startTalking(false))}
+            title={talk === "recording" ? "Stop and put the words in the box" : "Talk to Hermes: press, speak, press again to review before sending. Or hold V to talk and send at once."}
+            aria-label={talk === "recording" ? "Stop talking" : "Talk"}
+          >
+            {talk === "transcribing" ? <span className="dot" /> : <Icon name="mic" />}
+          </button>
+          <button
+            type="button" className={"round ghost talk-btn" + (speakOn ? " on" : "")}
+            onClick={() => {
+              const next = !speakOn;
+              setSpeakOn(next);
+              local.set("sous.speak", next ? "1" : "0");
+              if (!next) stopSpeaking();
+            }}
+            title={speakOn ? "Hermes reads its replies aloud. Click to turn off." : "Have Hermes read its replies aloud"}
+            aria-label={speakOn ? "Stop reading replies aloud" : "Read replies aloud"} aria-pressed={speakOn}
+          >
+            <Icon name={speakOn ? "speaker" : "speakerOff"} />
+          </button>
           {chat.running ? (
             <button type="button" onClick={() => void api.chatStop(pid)}>Stop</button>
           ) : (

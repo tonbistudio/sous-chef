@@ -14,6 +14,7 @@ import { Exporter, type ExportJob } from "./export.js";
 import { activityFor } from "./activity.js";
 import { Chats, chatImagesDir, type ChatState } from "./chat.js";
 import { voiceFilter } from "./voice.js";
+import { speak, spokenText, transcribe } from "./talk.js";
 import { judgeRetakes } from "./retakes.js";
 import { captureTemplate, type Op } from "@sous-chef/core";
 import { deleteTemplate, getTemplate, libraryBriefing, listTemplates as listLibraryTemplates, logProjectOpen, noteProject, readMemory, readPreferences, readProjectLog, hermesProfiles, saveTemplate, templateId, writeMemory, writePreferences } from "./library.js";
@@ -384,6 +385,36 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (parts[1] === "fs" && parts[2] === "list" && method === "GET") {
       return sendJson(res, 200, await listDir(url.searchParams.get("dir") ?? ""));
     }
+    if (parts[1] === "talk" && parts[2] === "transcribe" && method === "POST") {
+      // A recording from the chat's microphone; Hermes's own speech-to-text turns it into words.
+      const type = String(req.headers["content-type"] ?? "");
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const chunk of req) {
+        size += (chunk as Buffer).length;
+        if (size > 25 * 1024 * 1024) throw new HttpError(413, "That recording is too long", "invalid");
+        chunks.push(chunk as Buffer);
+      }
+      if (size < 200) throw new HttpError(400, "Nothing was recorded", "invalid");
+      try {
+        return sendJson(res, 200, { text: await transcribe(Buffer.concat(chunks), type) });
+      } catch (err) {
+        throw new HttpError(502, err instanceof Error ? err.message : String(err), "voice");
+      }
+    }
+    if (parts[1] === "talk" && parts[2] === "speak" && method === "POST") {
+      // A reply read aloud with the profile's Hermes voice.
+      const text = spokenText(String((await readJson(req)).text ?? ""));
+      if (!text) throw new HttpError(400, "Nothing to say", "invalid");
+      try {
+        const { audio, type } = await speak(text);
+        res.writeHead(200, { "content-type": type, "content-length": audio.length, "cache-control": "no-store" });
+        res.end(audio);
+        return;
+      } catch (err) {
+        throw new HttpError(502, err instanceof Error ? err.message : String(err), "voice");
+      }
+    }
     if (parts[1] === "hermes" && parts[2] === "profiles" && method === "GET") {
       return sendJson(res, 200, { profiles: ["default", ...(await hermesProfiles())], current: (await readPreferences()).hermesProfile || "default" });
     }
@@ -718,6 +749,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           `[Sous Chef editor context. project_id=${p.id}; project folder=${p.dir.replace(/\\/g, "/")}; open timeline="${say(p.project.timelineName)}" (${say(p.project.timelineId, 64)}); revision=${p.project.revision}; length=${(p.plan.durationUs / 1e6).toFixed(1)}s` +
             (Number.isFinite(at) ? `; playhead at ${(at / 1e6).toFixed(2)}s` : "") +
             (body.selected ? `; selected: ${say(body.selected, 120)}` : "") +
+            (body.marks ? `; the user marked up the frame (the attached picture shows the preview with their drawing on it; positions are fractions of the frame, 0,0 top-left): ${say(body.marks, 1200)}` : "") +
             `; tracks: ${p.project.tracks.map((t) => `${say(t.name, 30)} (${t.kind}, ${t.items.length} item${t.items.length === 1 ? "" : "s"})`).join(", ")}` +
             `. The user is typing in the editor's chat tab. Act on this project with the Sous Chef tools (server "sous_chef": project, transcript, edit_apply, suggest, frame_get, history, render, library, publish), reading the project first. Edits appear in the editor at once. Thumbnails you make for this video: save the image files in ${path.join(p.dir, "publish", "thumbnails").replace(/\\/g, "/")}/ (or add them with the publish tool); anything there shows in the editor's Publish view. Reply briefly in plain language.]`,
         ].join("");

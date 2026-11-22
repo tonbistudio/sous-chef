@@ -170,6 +170,22 @@ export const api = {
     if (!r.ok) throw new Error((data as { error?: { message?: string } }).error?.message ?? `Upload failed (${r.status})`);
     return data as { file: string; path: string };
   },
+  /** Words from a chat recording, by the chosen Hermes profile's own speech-to-text. */
+  hearSpeech: async (blob: Blob): Promise<string> => {
+    const r = await fetch("/api/talk/transcribe", { method: "POST", headers: { authorization: "Bearer " + token, "content-type": blob.type || "audio/webm" }, body: blob });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((data as { error?: { message?: string } }).error?.message ?? `Transcription failed (${r.status})`);
+    return String((data as { text?: string }).text ?? "");
+  },
+  /** A reply read aloud in the chosen Hermes profile's voice. */
+  speak: async (text: string): Promise<Blob> => {
+    const r = await fetch("/api/talk/speak", { method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" }, body: JSON.stringify({ text }) });
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      throw new Error((data as { error?: { message?: string } }).error?.message ?? `Speech failed (${r.status})`);
+    }
+    return r.blob();
+  },
   chatImageUrl: (pid: string, file: string) => `/api/p/${pid}/chat/images/${encodeURIComponent(file)}?token=${token}`,
   projects: () => call<{ projects: { projectId: string; path: string; revision: number }[] }>("GET", "/api/projects"),
   open: (path: string, create = false) =>
@@ -207,7 +223,7 @@ export const api = {
   templates: (pid: string) => call<{ templates: Record<string, { description: string; defaults: Record<string, string> }> }>("GET", `/api/p/${pid}/templates`),
   overlayState: (pid: string) => call<{ rendered: Record<string, string> }>("GET", `/api/p/${pid}/overlay-state`),
   chat: (pid: string) => call<ChatState>("GET", `/api/p/${pid}/chat`),
-  chatSend: (pid: string, body: { text: string; playheadUs: number; selected?: string; images?: string[] }) => call<ChatState>("POST", `/api/p/${pid}/chat`, body),
+  chatSend: (pid: string, body: { text: string; playheadUs: number; selected?: string; images?: string[]; marks?: string }) => call<ChatState>("POST", `/api/p/${pid}/chat`, body),
   chatStop: (pid: string) => call<{ ok: boolean }>("POST", `/api/p/${pid}/chat/stop`, {}),
   chatClear: (pid: string) => call<ChatState>("POST", `/api/p/${pid}/chat/clear`, {}),
   library: () => call<LibraryState>("GET", "/api/library"),
