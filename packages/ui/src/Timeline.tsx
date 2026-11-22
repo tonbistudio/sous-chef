@@ -442,7 +442,7 @@ const TrackCanvas = memo(function TrackCanvas({ plan, pid, prepared, pps, scroll
         // Sound: the loudest level in each pixel column.
         const wave = info?.wave ? getWave(pid, seg.mediaId, redraw) : null;
         if (wave && seg.hasAudio) {
-          g.fillStyle = seg.muted ? "#55606b" : "#8fb8dc";
+          g.fillStyle = seg.muted ? "#5e5a54" : "#e9c27a";
           const base = TRACK_H - 1;
           const room = TRACK_H - THUMB_H - 3;
           const perUs = 100 / S;
