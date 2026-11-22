@@ -677,7 +677,7 @@ button.link:hover { color: var(--accent); }
 
 /* ---------- Library view ---------- */
 button.link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; text-underline-offset: 2px; }
-.lib-view { grid-column: 2 / -1; grid-row: 2 / -1; display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 0; background: var(--bg); }
+.lib-view { grid-column: 2 / -1; grid-row: 2 / -1; display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 0; background: transparent; }
 .lib-nav { border-right: 1px solid var(--line); padding: 20px 12px; display: flex; flex-direction: column; gap: 2px; background: var(--pane); }
 .lib-nav-head { padding: 0 10px 16px; }
 .lib-nav-head h1 { font-size: 18px; font-weight: 650; letter-spacing: -0.01em; }
