@@ -9,7 +9,9 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { WebSocketServer, type WebSocket } from "ws";
 import { EditError, timelineToSource, captionCues, fillSettings, slicePlan, toSrt, type Transcripts } from "@sous-chef/core";
-import { grabFrame, mimeFor } from "./media.js";
+import { cutExcerpt, grabFrame, mimeFor } from "./media.js";
+import { cleanPublicUrl, createKey, readRemote, RemoteDoor, revokeKey, updateRemote, type RemoteState } from "./remote.js";
+import { testChatAgent } from "./agentRemote.js";
 import { Exporter, type ExportJob } from "./export.js";
 import { activityFor } from "./activity.js";
 import { Chats, chatImagesDir, type ChatState } from "./chat.js";
@@ -46,6 +48,8 @@ export interface ServerOptions {
   uiDir?: string;
   /** Build proxies and the like automatically. On by default; tests turn it off. */
   autoPrepare?: boolean;
+  /** Open the remote-agent door when it is turned on in settings. On by default; tests turn it off. */
+  remote?: boolean;
 }
 
 const MEDIA_EXT = new Set([
@@ -251,7 +255,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
    * Whether nothing would be lost by stopping this server: no editor window open, no export, job or
    * chat running. Both idle exit and replacement by a newer build go by this one test.
    */
-  const replaceable = (): boolean => sockets.size === 0 && !exporter.anyRunning() && !jobs.anyRunning() && !chats.anyRunning();
+  // While remote agents are allowed in, the server stays up even with no window open.
+  const replaceable = (): boolean => sockets.size === 0 && !exporter.anyRunning() && !jobs.anyRunning() && !chats.anyRunning() && !door.open;
+  const door = new RemoteDoor(() => ({ port, token: options.token }));
   let onShutdown: (() => void) | null = null;
 
   /** Media that could not be prepared, by project and media id, with the file as it was then. */
@@ -419,6 +425,77 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
     if (parts[1] === "hermes" && parts[2] === "profiles" && method === "GET") {
       return sendJson(res, 200, { profiles: ["default", ...(await hermesProfiles())], current: (await readPreferences()).hermesProfile || "default" });
+    }
+    if (parts[1] === "remote") {
+      // Remote agents: Settings → Remote agents. Reached on this computer only, with the editor's token.
+      const view = (s: RemoteState) => ({
+        enabled: s.enabled,
+        port: s.port,
+        publicUrl: s.publicUrl,
+        status: door.status,
+        keys: s.keys.map((k) => ({ id: k.id, name: k.name, createdAt: k.createdAt, lastUsedAt: k.lastUsedAt })),
+        chatAgent: s.chatAgent ? { url: s.chatAgent.url, hasKey: Boolean(s.chatAgent.key) } : null,
+      });
+      if (!parts[2] && method === "GET") return sendJson(res, 200, view(await readRemote()));
+      if (!parts[2] && method === "POST") {
+        const b = (await readJson(req)) as { enabled?: unknown; publicUrl?: unknown };
+        let publicUrl: string | undefined;
+        if (typeof b.publicUrl === "string") {
+          try {
+            publicUrl = cleanPublicUrl(b.publicUrl);
+          } catch {
+            throw new HttpError(400, "That doesn't look like a web address.", "invalid");
+          }
+        }
+        const s = await updateRemote((r) => {
+          if (typeof b.enabled === "boolean") r.enabled = b.enabled;
+          if (publicUrl !== undefined) r.publicUrl = publicUrl;
+        });
+        await door.apply();
+        return sendJson(res, 200, view(s));
+      }
+      if (parts[2] === "keys" && !parts[3] && method === "POST") {
+        const made = await createKey(String((await readJson(req)).name ?? ""));
+        await door.reloadKeys();
+        return sendJson(res, 200, { key: made.key, id: made.record.id, name: made.record.name });
+      }
+      if (parts[2] === "keys" && parts[3] && parts[4] === "delete" && method === "POST") {
+        await revokeKey(parts[3]);
+        await door.reloadKeys();
+        return sendJson(res, 200, view(await readRemote()));
+      }
+      if (parts[2] === "agent" && !parts[3] && method === "POST") {
+        const b = (await readJson(req)) as { url?: unknown; key?: unknown; off?: unknown };
+        const s = await updateRemote((r) => {
+          if (b.off === true) r.chatAgent = null;
+          else {
+            const url = typeof b.url === "string" ? b.url.trim().replace(/\/+$/, "") : "";
+            if (!/^https?:\/\/[^\s/]+/i.test(url)) throw new HttpError(400, "Give the agent's address, like https://my-vps.example.com", "invalid");
+            const key = typeof b.key === "string" && b.key.trim() ? b.key.trim() : r.chatAgent?.key ?? "";
+            r.chatAgent = { url, key };
+          }
+        });
+        return sendJson(res, 200, view(s));
+      }
+      if (parts[2] === "check" && method === "POST") {
+        // Settings → Remote agents → Check: does the public address really reach this door?
+        const s = await readRemote();
+        if (!s.enabled || !door.status.running) return sendJson(res, 200, { ok: false, message: "Turn remote agents on first." });
+        if (!s.publicUrl) return sendJson(res, 200, { ok: false, message: "Add your tunnel's public address first." });
+        try {
+          const r = await fetch(`${s.publicUrl}/health`, { signal: AbortSignal.timeout(10_000) });
+          const body = (await r.json().catch(() => null)) as { name?: string } | null;
+          if (r.ok && body?.name === "Sous Chef") return sendJson(res, 200, { ok: true, message: "The address reaches Sous Chef. Agents can connect." });
+          return sendJson(res, 200, { ok: false, message: `The address answered, but not as Sous Chef (${r.status}). Point the tunnel at http://127.0.0.1:${door.status.port}.` });
+        } catch (e) {
+          return sendJson(res, 200, { ok: false, message: `Couldn't reach ${s.publicUrl} (${e instanceof Error && e.name === "TimeoutError" ? "timed out" : e instanceof Error ? e.message : String(e)}). Is the tunnel running?` });
+        }
+      }
+      if (parts[2] === "agent" && parts[3] === "test" && method === "POST") {
+        const s = await readRemote();
+        if (!s.chatAgent) throw new HttpError(400, "No remote agent is set.", "invalid");
+        return sendJson(res, 200, await testChatAgent(s.chatAgent));
+      }
     }
     if (parts[1] === "preferences" && method === "GET") return sendJson(res, 200, await readPreferences());
     if (parts[1] === "preferences" && method === "POST") {
@@ -1031,6 +1108,28 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         const proxy = url.searchParams.get("proxy") === "1" ? proxyPath(p.dir, media.id) : null;
         return sendFile(req, res, proxy && existsSync(proxy) ? proxy : p.mediaPath(media));
       }
+      if (what === "excerpt" && method === "GET") {
+        // A short mp3 or mp4 from a point of a take or the edit, for agents on another computer.
+        let mediaId = url.searchParams.get("mediaId");
+        let us = Number(url.searchParams.get("us"));
+        const tl = url.searchParams.get("tlUs");
+        if (tl !== null) {
+          const hit = timelineToSource(p.plan, Number(tl));
+          if (!hit) throw new HttpError(404, "Nothing plays on the main track at that time", "not_found");
+          mediaId = hit.segment.mediaId;
+          us = hit.srcUs;
+        }
+        const media = p.project.media.find((m) => m.id === mediaId);
+        if (!media) throw new HttpError(404, `No media "${mediaId}"`, "not_found");
+        if (!Number.isFinite(us) || us < 0 || (media.durationUs > 0 && us >= media.durationUs)) throw new HttpError(400, "Time is outside the media", "invalid");
+        const kind = url.searchParams.get("kind") === "video" && media.probe.hasVideo ? "video" : "audio";
+        const durUs = Math.max(1_000_000, Math.min(60_000_000, Number(url.searchParams.get("durUs") ?? 15_000_000) || 15_000_000));
+        const proxy = proxyPath(p.dir, media.id);
+        const data = await cutExcerpt(existsSync(proxy) ? proxy : p.mediaPath(media), us, durUs, kind);
+        res.writeHead(200, { "content-type": kind === "video" ? "video/mp4" : "audio/mpeg", "content-length": data.length, "cache-control": "no-store", "x-media-id": media.id, "x-source-us": String(Math.round(us)) });
+        res.end(data);
+        return;
+      }
       if (what === "frame" && method === "GET") {
         const width = Number(url.searchParams.get("width") ?? 960);
         let mediaId = url.searchParams.get("mediaId");
@@ -1104,6 +1203,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     server.listen(options.port ?? 0, "127.0.0.1", () => resolve());
   });
   port = (server.address() as AddressInfo).port;
+  if (options.remote !== false) await door.apply().catch(() => undefined);
 
   return {
     port,
@@ -1119,6 +1219,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       new Promise<void>((resolve) => {
         exporter.stopAll();
         jobs.stopAll();
+        void door.close();
         chats.stopAll();
         for (const ws of sockets) ws.terminate();
         wss.close();

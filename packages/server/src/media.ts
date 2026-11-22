@@ -75,6 +75,22 @@ export async function grabFrame(file: string, us: number, width: number): Promis
   return jpeg;
 }
 
+/**
+ * A short piece of a take as a small file, for agents on another computer to watch or hear:
+ * mp3 sound, or a 640-wide mp4 with sound. Cut from the given file (the proxy when there is one).
+ */
+export async function cutExcerpt(file: string, us: number, durUs: number, kind: "audio" | "video"): Promise<Buffer> {
+  const ss = Math.max(0, us / 1_000_000).toFixed(3);
+  const t = Math.max(0.5, durUs / 1_000_000).toFixed(3);
+  const args =
+    kind === "audio"
+      ? ["-v", "error", "-ss", ss, "-t", t, "-i", file, "-vn", "-ac", "1", "-c:a", "libmp3lame", "-b:a", "96k", "-f", "mp3", "pipe:1"]
+      : ["-v", "error", "-ss", ss, "-t", t, "-i", file, "-vf", "scale=640:-2", "-c:v", "libx264", "-preset", "veryfast", "-crf", "30", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", "-movflags", "frag_keyframe+empty_moov", "-f", "mp4", "pipe:1"];
+  const out = await run("ffmpeg", args, 150 * 1024 * 1024);
+  if (out.length === 0) throw new EditError("invalid", "Nothing there to cut");
+  return out;
+}
+
 const MIME: Record<string, string> = {
   ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".mkv": "video/x-matroska",
   ".webm": "video/webm", ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4",

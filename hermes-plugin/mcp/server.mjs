@@ -17450,7 +17450,7 @@ function searchSequence(seq, phrase, includeRemoved = true) {
 // packages/core/dist/roughcut.js
 var STUTTER = new Set("the a an to and of in is it i we you that this so but for on with if or then at as be".split(" "));
 
-// packages/mcp/dist/tools.js
+// packages/server/dist/agentTools.js
 var PROPOSE_OVER_PIECES = 20;
 var PROPOSE_OVER_US = 3e7;
 var TIME_NOTE = "All times are whole microseconds (1 second = 1000000).";

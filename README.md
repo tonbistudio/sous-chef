@@ -37,6 +37,9 @@ work but are less tested.
   and a project log.
 - **Publish view**: thumbnail options with a YouTube feed preview, title options and
   a description, written by the agent from your own description template.
+- **Agents on other computers.** A Hermes on a VPS, a Spark or in the cloud can edit
+  your projects through a tunnel, with a revocable key per agent; the chat panel can
+  talk to it too. See [docs/remote-agents.md](docs/remote-agents.md).
 - Every edit saves immediately, with undo history and autosave snapshots.
 
 ## How it fits together
@@ -44,7 +47,7 @@ work but are less tested.
 | Package | What it is |
 | --- | --- |
 | `packages/core` | Project model, edit operations with undo, and the compiler that turns a project into the plan both preview and export read. No I/O. |
-| `packages/server` | The edit server: owns project files, media, transcription, export, chat and the library. HTTP + WebSocket on `127.0.0.1` with a bearer token. |
+| `packages/server` | The edit server: owns project files, media, transcription, export, chat and the library. HTTP + WebSocket on `127.0.0.1` with a bearer token. Also the agent tools themselves (`agentTools.ts`) and, when turned on, a separate door for remote agents serving those tools over MCP HTTP (`remote.ts`). |
 | `packages/ui` | The editor (React), served by the edit server. |
 | `packages/desktop` | Electron shell around the UI, with native file dialogs. |
 | `packages/mcp` | Agent tools over MCP (stdio): `project`, `transcript`, `edit_apply`, `suggest`, `frame_get`, `history`, `render`, `library`, `publish`. |

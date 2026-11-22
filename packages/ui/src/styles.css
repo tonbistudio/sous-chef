@@ -840,3 +840,25 @@ button.theme-toggle { display: inline-grid; place-items: center; padding: 5px 7p
 .chat-form .row { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
 .chat-form .row > .talk-btn { margin-right: auto; }
 .chat-form .row > button { flex: none; }
+
+/* Settings → Remote agents */
+.set-summary { flex: 1; text-align: right; font-size: 12px; }
+.set-hint { color: var(--dim); font-size: 11px; margin: -2px 0 2px; }
+.modal.remote { width: min(560px, 94vw); background: var(--panel-solid); }
+.remote-body { padding: 12px 16px 16px; overflow: auto; display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
+.remote-body p { margin: 0; line-height: 1.45; }
+.remote-body section { display: flex; flex-direction: column; gap: 7px; border-top: 1px solid var(--line); padding-top: 10px; }
+.remote-body h3 { font-size: 13px; text-transform: none; letter-spacing: 0; color: var(--text); margin: 0; display: flex; align-items: center; gap: 8px; }
+.remote-body h3 b { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #1b1b1b; font-size: 11px; }
+.remote-body .set-row input:not([type="checkbox"]) { max-width: none; }
+.remote-body code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.copy-line { display: flex; align-items: center; gap: 8px; background: var(--field); border: 1px solid var(--line); border-radius: 6px; padding: 5px 6px 5px 9px; }
+.copy-line code { flex: 1; min-width: 0; overflow-wrap: anywhere; user-select: all; }
+.remote-made { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--accent); border-radius: 8px; padding: 9px 10px; }
+.remote-keys { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.remote-keys li { display: flex; align-items: center; gap: 10px; }
+.remote-keys li > span:first-child { font-weight: 600; }
+.remote-keys li > .dim { flex: 1; font-size: 12px; }
+.remote-actions { display: flex; justify-content: flex-end; }
+.remote-good { color: var(--ok); }
+.remote-bad { color: var(--danger); }

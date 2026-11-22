@@ -168,7 +168,24 @@ export interface Prefs {
   newProjectLufs: number | null;
 }
 
+/** Settings → Remote agents. */
+export interface RemoteView {
+  enabled: boolean;
+  port: number;
+  publicUrl: string;
+  status: { running: boolean; port: number; error: string };
+  keys: { id: string; name: string; createdAt: string; lastUsedAt: string | null }[];
+  chatAgent: { url: string; hasKey: boolean } | null;
+}
+
 export const api = {
+  remote: () => call<RemoteView>("GET", "/api/remote"),
+  setRemote: (patch: { enabled?: boolean; publicUrl?: string }) => call<RemoteView>("POST", "/api/remote", patch),
+  checkRemote: () => call<{ ok: boolean; message: string }>("POST", "/api/remote/check", {}),
+  makeAgentKey: (name: string) => call<{ key: string; id: string; name: string }>("POST", "/api/remote/keys", { name }),
+  removeAgentKey: (id: string) => call<RemoteView>("POST", `/api/remote/keys/${encodeURIComponent(id)}/delete`, {}),
+  setChatAgent: (agent: { url: string; key?: string } | null) => call<RemoteView>("POST", "/api/remote/agent", agent ?? { off: true }),
+  testChatAgent: () => call<{ ok: boolean; reached: boolean; tools: boolean; message: string }>("POST", "/api/remote/agent/test", {}),
   /** Sends a recorded voiceover; the server saves it in the project and returns its path. */
   uploadRecording: async (pid: string, blob: Blob, clean = true): Promise<{ path: string }> => {
     const r = await fetch(`/api/p/${pid}/recordings${clean ? "" : "?clean=0"}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": blob.type || "application/octet-stream" }, body: blob });

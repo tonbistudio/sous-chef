@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { Icon } from "./icons";
+import { RemoteAgents } from "./RemoteAgents";
 import { local } from "./storage";
 import type { Editor } from "./useEditor";
 
@@ -23,6 +24,7 @@ type Prefs = Awaited<ReturnType<typeof api.preferences>>;
 /** A gear in the top bar that opens the app's settings: Hermes, voice, and what new projects start with. */
 export function SettingsButton({ editor }: { editor: Editor }) {
   const [open, setOpen] = useState(false);
+  const [remote, setRemote] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -40,12 +42,14 @@ export function SettingsButton({ editor }: { editor: Editor }) {
       <button className={"ghost icon-only" + (open ? " on" : "")} onClick={() => setOpen((o) => !o)} title="Settings" aria-label="Settings" aria-expanded={open}>
         <Icon name="gear" />
       </button>
-      {open && <SettingsPanel editor={editor} />}
+      {open && <SettingsPanel editor={editor} onRemote={() => (setOpen(false), setRemote(true))} />}
+      {remote && <RemoteAgents editor={editor} onClose={() => setRemote(false)} />}
     </div>
   );
 }
 
-function SettingsPanel({ editor }: { editor: Editor }) {
+function SettingsPanel({ editor, onRemote }: { editor: Editor; onRemote: () => void }) {
+  const [remote, setRemote] = useState<Awaited<ReturnType<typeof api.remote>> | null>(null);
   const [profiles, setProfiles] = useState<{ profiles: string[]; current: string } | null>(null);
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   const [speak, setSpeak] = useState(speakReplies);
@@ -53,6 +57,7 @@ function SettingsPanel({ editor }: { editor: Editor }) {
   useEffect(() => {
     void api.hermesProfiles().then(setProfiles).catch(() => undefined);
     void api.preferences().then(setPrefs).catch(fail);
+    void api.remote().then(setRemote).catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const save = (patch: Partial<Prefs>) => void api.setPreferences(patch).then(setPrefs).catch(fail);
@@ -72,6 +77,14 @@ function SettingsPanel({ editor }: { editor: Editor }) {
           {profiles?.profiles.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
       </label>
+      <div className="set-row">
+        <span>Remote agents</span>
+        <span className="dim set-summary">
+          {!remote ? "" : remote.enabled ? `On · ${remote.keys.length} agent${remote.keys.length === 1 ? "" : "s"}` : remote.chatAgent ? "Chat only" : "Off"}
+        </span>
+        <button className="ghost" onClick={onRemote}>Set up…</button>
+      </div>
+      {remote?.chatAgent && <p className="set-hint">Chat goes to Hermes at {(() => { try { return new URL(remote.chatAgent.url).host; } catch { return remote.chatAgent.url; } })()}.</p>}
       <label className="set-row check" title="Uses the profile's own voice. Hold V anywhere to talk to Hermes.">
         <input
           type="checkbox" checked={speak}

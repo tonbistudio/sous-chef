@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { runRemote } from "./agentRemote.js";
+import { readRemote, type ChatAgent } from "./remote.js";
 
 /**
  * The chat tab: a conversation with the user's own Hermes agent about the
@@ -36,6 +38,8 @@ interface Thread {
   /** Profile the session belongs to; "" is the default profile. */
   profile: string;
   child: ChildProcess | null;
+  /** A turn on a Hermes on another computer, while it runs. */
+  remote: AbortController | null;
   activity: string;
   loaded: boolean;
   stopped?: boolean;
@@ -71,7 +75,7 @@ export class Chats {
   private async thread(projectId: string, dir: string): Promise<Thread> {
     let t = this.threads.get(projectId);
     if (!t) {
-      t = { messages: [], sessionId: null, profile: "", child: null, activity: "", loaded: false };
+      t = { messages: [], sessionId: null, profile: "", child: null, remote: null, activity: "", loaded: false };
       this.threads.set(projectId, t);
     }
     if (!t.loaded) {
@@ -89,7 +93,7 @@ export class Chats {
   }
 
   private view(t: Thread): ChatState {
-    return { messages: t.messages, running: Boolean(t.child), activity: t.activity };
+    return { messages: t.messages, running: Boolean(t.child || t.remote), activity: t.activity };
   }
 
   private async save(projectId: string, dir: string, t: Thread): Promise<void> {
@@ -103,7 +107,7 @@ export class Chats {
   }
 
   anyRunning(): boolean {
-    return [...this.threads.values()].some((t) => t.child);
+    return [...this.threads.values()].some((t) => t.child || t.remote);
   }
 
   stop(projectId: string): void {
@@ -112,17 +116,23 @@ export class Chats {
       t.stopped = true;
       killTree(t.child);
     }
+    t?.remote?.abort();
   }
 
   stopAll(): void {
-    for (const t of this.threads.values()) killTree(t.child);
+    for (const t of this.threads.values()) {
+      killTree(t.child);
+      t.remote?.abort();
+    }
   }
 
   /** Forgets the conversation; the next message starts a new Hermes session. */
   async clear(projectId: string, dir: string): Promise<void> {
     const t = await this.thread(projectId, dir);
     killTree(t.child);
+    t.remote?.abort();
     t.child = null;
+    t.remote = null;
     t.messages = [];
     t.sessionId = null;
     await this.save(projectId, dir, t);
@@ -131,9 +141,11 @@ export class Chats {
   /** Sends a message. Returns at once; the reply arrives through onChange. */
   async send(projectId: string, dir: string, text: string, context: string, briefing?: () => Promise<string>, images: string[] = []): Promise<void> {
     const t = await this.thread(projectId, dir);
-    if (t.child) throw new Error("Hermes is still working on the last message.");
+    if (t.child || t.remote) throw new Error("Hermes is still working on the last message.");
     const push = (role: ChatMessage["role"], body: string, pics?: string[]) => t.messages.push({ id: (t.messages[t.messages.length - 1]?.id ?? 0) + 1, role, text: body, at: Date.now(), ...(pics?.length ? { images: pics } : {}) });
     push("user", text, images);
+    const agent = (await readRemote().catch(() => null))?.chatAgent;
+    if (agent) return this.sendRemote(projectId, dir, t, agent, text, context, briefing, images, push);
     t.activity = "Starting Hermes";
 
     // A session lives in one profile: after switching profiles the conversation starts again there.
@@ -223,6 +235,80 @@ export class Chats {
       void finish(signal || t.stopped ? "Stopped." : notFound ? "Hermes Agent was not found on this computer. Install it, or set SOUS_CHEF_HERMES to its path." : code && !failure && !reply ? stderr.trim().split(/\r?\n/).slice(-2).join(" ") || `Hermes exited with code ${code}` : undefined);
     });
   }
+
+  /** The same turn, on a Hermes on another computer (Settings → Remote agents). */
+  private async sendRemote(projectId: string, dir: string, t: Thread, agent: ChatAgent, text: string, context: string, briefing: (() => Promise<string>) | undefined, images: string[], push: (role: ChatMessage["role"], body: string) => void): Promise<void> {
+    const host = (() => {
+      try {
+        return new URL(agent.url).host;
+      } catch {
+        return agent.url;
+      }
+    })();
+    // A session belongs to one agent: switching between this computer and another starts afresh.
+    const profile = `remote:${host}`;
+    if (t.sessionId && t.profile !== profile) {
+      t.sessionId = null;
+      t.messages.splice(t.messages.length - 1, 0, { id: t.messages[t.messages.length - 1]?.id ?? 0, role: "assistant", text: `(Now talking to Hermes at ${host}. It starts fresh and doesn't see the messages above.)`, at: Date.now() });
+    }
+    t.profile = profile;
+    const ctl = new AbortController();
+    t.remote = ctl;
+    t.stopped = false;
+    t.activity = `Asking Hermes at ${host}`;
+    await this.save(projectId, dir, t);
+    const intro = !t.sessionId && briefing ? await briefing().catch(() => "") : "";
+    // Pictures go along with the message: that computer can't open files on this one.
+    const pics = (
+      await Promise.all(
+        images.map(async (f) => {
+          const data = await readFile(path.join(chatImagesDir(dir), f)).catch(() => null);
+          const ext = path.extname(f).slice(1).toLowerCase().replace("jpg", "jpeg");
+          return data ? `data:image/${ext};base64,${data.toString("base64")}` : null;
+        }),
+      )
+    ).filter((x): x is string => Boolean(x));
+    const note = pics.length ? `\n\n[The user attached ${pics.length} picture${pics.length === 1 ? "" : "s"} to this message; look at ${pics.length === 1 ? "it" : "them"} before answering.]` : "";
+    let reply = "";
+    let lastTold = 0;
+    const tell = () => {
+      if (Date.now() - lastTold < 250) return;
+      lastTold = Date.now();
+      this.onChange(projectId, { ...this.view(t), messages: reply ? [...t.messages, { id: -1, role: "assistant", text: reply, at: Date.now() }] : t.messages });
+    };
+    const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+    let problem = "";
+    try {
+      const r = await runRemote(
+        agent,
+        { text: `${context}${intro ? `\n\n[Editor library, carried across projects]\n${intro}` : ""}${note}\n\n${text}`, sessionId: t.sessionId, images: pics, signal: ctl.signal },
+        {
+          onText: (s) => {
+            reply = s;
+            t.activity = "Writing";
+            tell();
+          },
+          onTool: (n) => {
+            t.activity = `Using ${n.replace(/^mcp_+/, "").replace(/^sous_chef_+/, "").replace(/_/g, " ")}`;
+            tell();
+          },
+        },
+      );
+      t.sessionId = r.sessionId;
+      reply = r.text || reply;
+    } catch (e) {
+      problem = ctl.signal.aborted ? "Stopped." : e instanceof Error ? e.message : String(e);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (t.remote !== ctl) return;
+    t.remote = null;
+    t.activity = "";
+    if (reply.trim()) push("assistant", reply.trim());
+    if (problem) push("error", problem);
+    else if (!reply.trim()) push("error", "Hermes stopped without answering.");
+    await this.save(projectId, dir, t);
+  }
 }
 
 /**
@@ -240,7 +326,25 @@ export interface AskOptions {
 /** Asks with the same session name wait their turn: a session answers one question at a time. */
 const sessionQueue = new Map<string, Promise<unknown>>();
 
-export function askHermes(question: string, cwd: string, timeoutMs = 4 * 60_000, onChild?: (child: ChildProcess) => void, options: AskOptions = {}): Promise<string> {
+export async function askHermes(question: string, cwd: string, timeoutMs = 4 * 60_000, onChild?: (child: ChildProcess) => void, options: AskOptions = {}): Promise<string> {
+  const agent = (await readRemote().catch(() => null))?.chatAgent;
+  if (agent) {
+    // On the agent named in Settings → Remote agents; a named session keeps one conversation per name.
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    try {
+      const slug = options.session?.replace(/[^\w-]+/g, "-").slice(0, 80);
+      const r = await runRemote(agent, { text: question, sessionId: slug ? `sous-ask-${slug}` : null, signal: ctl.signal });
+      if (!r.text) throw new Error("Hermes gave no answer");
+      return r.text;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return askLocal(question, cwd, timeoutMs, onChild, options);
+}
+
+function askLocal(question: string, cwd: string, timeoutMs: number, onChild: ((child: ChildProcess) => void) | undefined, options: AskOptions): Promise<string> {
   // Passed through a shell on Windows: keep the name to plain characters.
   const name = options.session?.replace(/[^\w .:-]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
   if (!name) return profileArgs().then((p) => runHermes(question, cwd, timeoutMs, onChild, [], p.args));
