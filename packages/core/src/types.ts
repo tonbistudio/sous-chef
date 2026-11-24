@@ -139,6 +139,11 @@ export interface Clip {
   transform: Transform;
   /** Main track only: how this clip comes in from the clip before it, when they touch. */
   transitionIn?: Transition | null;
+  /**
+   * Other tracks only: locked to the picture. The moment of a main-track recording that plays where this
+   * clip starts; the clip follows that moment when footage before it is added, cut or moved.
+   */
+  link?: { mediaId: string; srcUs: Us };
 }
 
 /**
@@ -276,6 +281,8 @@ export type Op =
       speed?: number;
       volumeDb?: number;
       muted?: boolean;
+      /** Other tracks: lock the clip to the picture under its start (true) or let it go (false). */
+      linked?: boolean;
       fadeInUs?: Us;
       fadeOutUs?: Us;
       transform?: Partial<Transform>;

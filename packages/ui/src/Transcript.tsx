@@ -159,7 +159,6 @@ export function Transcript({ editor }: { editor: Editor }) {
     if (!sel) return;
     const ops = removeItemsOps(project, seq, lo, hi);
     if (ops.length) void editor.run(`Delete ${describe()}`, ops);
-    else if (picked.some((i) => i.voice)) editor.notify("Voiceover words can be fixed but not cut here. Trim or split the voiceover clip on the timeline.");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sel, project, seq, lo, hi, editor]);
 

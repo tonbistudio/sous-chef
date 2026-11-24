@@ -823,8 +823,18 @@ const PLACES: [string, { x: number; y: number; scale: number }][] = [
 function SoundAndFades({ editor, clip }: { editor: Editor; clip: Clip }) {
   const set = (summary: string, patch: Record<string, unknown>) => void editor.run(summary, [{ op: "clip.set", clipId: clip.id, ...patch } as never]);
   const media = editor.project.media.find((m) => m.id === clip.mediaId);
+  const onMain = editor.project.tracks.find((t) => t.kind === "main")?.items.includes(clip.id);
   return (
     <>
+      {!onMain && (
+        <>
+          <h3>Timing</h3>
+          <label className="check" title="Locked, it stays with the moment of the screen recording under its start: add, cut or move footage before it and it moves too. Unlocked, it stays at its time.">
+            <input type="checkbox" checked={Boolean(clip.link)} onChange={(e) => set(e.target.checked ? "Lock to the video" : "Unlock from the video", { linked: e.target.checked })} /> Lock to the video
+            <span className="dim"> · {clip.link ? "moves with the footage under it" : "stays at its time"}</span>
+          </label>
+        </>
+      )}
       {media?.probe.hasAudio && media.kind !== "image" && (
         <>
           <h3>Sound</h3>

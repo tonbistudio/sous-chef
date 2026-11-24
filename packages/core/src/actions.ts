@@ -1,6 +1,6 @@
 /** Edits described in timeline time, turned into ops on clips. Shared by the editor and the agent tools. */
 import { timelineToSource, type Plan } from "./compile.js";
-import type { Op } from "./types.js";
+import type { Op, Project } from "./types.js";
 
 /** Ops that cut a stretch of the timeline out of every main clip it touches. */
 export function cutRangeOps(plan: Plan, tlA: number, tlB: number): Op[] {
@@ -29,6 +29,32 @@ export function splitAtOp(plan: Plan, tlUs: number): Op | null {
   const { segment, srcUs } = hit;
   if (srcUs - segment.srcInUs < 1000 && !segment.afterCut) return null;
   return { op: "clip.split", clipId: segment.clipId, atSourceUs: srcUs };
+}
+
+/**
+ * The ops that split clips at a timeline time. With a selected clip under the playhead, just that clip;
+ * otherwise every clip there: the main track and the video and audio lanes (voiceovers, music, B-roll).
+ * Lanes that are locked are left alone, and so is a clip whose edge is at that time.
+ */
+export function splitClipsAtOps(plan: Plan, project: Project, tlUs: number, selectedId?: string | null): Op[] {
+  const locked = new Set(project.tracks.filter((t) => t.locked).map((t) => t.id));
+  const ops = new Map<string, Op>();
+  for (const seg of plan.segments) {
+    if (locked.has(seg.trackId) || ops.has(seg.clipId)) continue;
+    if (tlUs < seg.tlStartUs || tlUs >= seg.tlEndUs) continue;
+    if (seg.trackKind === "main") {
+      const op = splitAtOp(plan, tlUs);
+      if (op) ops.set(seg.clipId, op);
+      continue;
+    }
+    const clip = project.items[seg.clipId];
+    if (!clip || clip.type !== "clip") continue;
+    const at = seg.srcInUs + Math.round((tlUs - seg.tlStartUs) * seg.speed);
+    if (at - clip.sourceInUs < 20_000 || clip.sourceOutUs - at < 20_000) continue;
+    ops.set(seg.clipId, { op: "clip.split", clipId: seg.clipId, atSourceUs: at });
+  }
+  if (selectedId && ops.has(selectedId)) return [ops.get(selectedId)!];
+  return [...ops.values()];
 }
 
 /** Timeline start and end of each main clip. */

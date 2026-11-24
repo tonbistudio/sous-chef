@@ -41,7 +41,7 @@ Transcript:
 
 /** The kept words as numbered text, split into pieces a model reads in one go. */
 export function numberedChunks(seq: SeqItem[]): string[] {
-  const kept = seq.map((item, i) => ({ item, i })).filter((x) => !x.item.removed && !x.item.voice);
+  const kept = seq.map((item, i) => ({ item, i })).filter((x) => !x.item.removed);
   const words = kept.filter((x) => x.item.kind === "word");
   if (words.length < 12) return [];
   const chunks: string[] = [];

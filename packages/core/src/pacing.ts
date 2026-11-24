@@ -57,11 +57,11 @@ export interface Pacing {
   tightenSavesUs: Us;
 }
 
-/** Main-track segments of one clip, in source order. */
+/** Segments of one main-track or audio clip (a voiceover), in source order. */
 function segmentsByClip(plan: Plan): Map<string, Segment[]> {
   const map = new Map<string, Segment[]>();
   for (const s of plan.segments) {
-    if (s.trackKind !== "main") continue;
+    if (s.trackKind === "video") continue;
     const list = map.get(s.clipId) ?? [];
     list.push(s);
     map.set(s.clipId, list);
@@ -93,7 +93,7 @@ export function pacing(project: Project, transcripts: Transcripts, options: Part
   let allPauseUs = 0;
 
   seq.forEach((it, index) => {
-    if (it.removed || it.voice || it.silent) return;
+    if (it.removed || it.silent) return;
     const parts = heard(segs.get(it.clipId), it.startUs, it.endUs);
     if (!parts.length) return;
     if (it.kind === "word") {

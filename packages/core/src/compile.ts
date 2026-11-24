@@ -289,6 +289,15 @@ function compileCamera(project: Project, segments: Segment[]): CameraSpan[] {
   return spans;
 }
 
+/** Where a moment of one clip's source plays on the timeline, on any track, or null if it was cut. */
+export function clipSourceToTimeline(plan: Plan, clipId: string, srcUs: Us): Us | null {
+  for (const seg of plan.segments) {
+    if (seg.clipId !== clipId) continue;
+    if (srcUs >= seg.srcInUs && srcUs < seg.srcOutUs) return seg.tlStartUs + Math.round((srcUs - seg.srcInUs) / seg.speed);
+  }
+  return null;
+}
+
 /** Where a moment of a media file plays on the main track, or null if it was cut. */
 export function sourceToTimeline(plan: Plan, mediaId: string, srcUs: Us): Us | null {
   for (const seg of plan.segments) {

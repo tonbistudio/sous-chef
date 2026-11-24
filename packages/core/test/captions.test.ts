@@ -74,12 +74,12 @@ describe("captions", () => {
     const all = { ...T, m2: voice };
     const withVoice = captionCues(p, all, compile(p));
     expect(withVoice[withVoice.length - 1]).toMatchObject({ text: "Spoken later.", startUs: 20.2 * S });
-    // The transcript lists the voiceover after the take it follows, and its words are not cuttable.
-    const seq = sequence(p, all, { voice: true });
+    // The transcript lists the voiceover after the take it follows, and its words can be cut like any other.
+    const seq = sequence(p, all);
     const first = seq.findIndex((i) => i.voice);
     expect(seq[first]).toMatchObject({ text: "Spoken", clipId: "cv", tlStartUs: 20.2 * S });
-    expect(removeItemsOps(p, seq, first, first + 1)).toEqual([]);
-    expect(sequence(p, all).some((i) => i.voice)).toBe(false);
+    expect(removeItemsOps(p, seq, first, first)).toEqual([expect.objectContaining({ op: "range.remove", clipId: "cv", wordIds: ["v0"] })]);
+    expect(sequence(p, all, { voice: false }).some((i) => i.voice)).toBe(false);
     // Spoken over the take, the voiceover is what gets captioned there.
     p = apply(p, [{ op: "clip.move", clipId: "cv", startUs: 0.7 * S } as never]);
     const over = captionCues(p, all, compile(p)).map((c) => c.text);

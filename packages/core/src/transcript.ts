@@ -1,3 +1,4 @@
+import { clipDurationUs, keptRanges } from "./compile.js";
 import type { Clip, Op, Project, RemovedWhy, Us } from "./types.js";
 
 /** One word as the speech engine heard it. Never edited; fixes live in the project. */
@@ -39,7 +40,7 @@ export interface SeqItem {
   why?: RemovedWhy;
   fixed?: boolean;
   lowConfidence?: boolean;
-  /** Spoken on a voiceover or other audio clip, not the main track. Has its own timeline time and cannot be cut by word. */
+  /** Spoken on a voiceover or other audio clip, not the main track. Has its own timeline time (tlStartUs/tlEndUs). */
   voice?: boolean;
   tlStartUs?: Us;
   tlEndUs?: Us;
@@ -62,85 +63,90 @@ function removedAt(clip: Clip, us: Us): RemovedWhy | null {
 
 /**
  * The transcript of the edit: every main clip's words in play order, with
- * pauses between them, each marked removed or kept.
+ * pauses between them, each marked removed or kept. Voiceovers and other
+ * spoken audio clips are part of it too (unless `voice: false`): their words
+ * and pauses go in where the clip starts on the timeline, and they are cut
+ * the same way, by removing ranges from the clip.
  */
 export function sequence(project: Project, transcripts: Transcripts, options: { voice?: boolean } = {}): SeqItem[] {
-  const main = mainSequence(project, transcripts);
-  if (!options.voice) return main;
-  // Voiceover and other spoken audio clips go in where they start on the timeline.
   const blocks: { at: Us; order: number; items: SeqItem[] }[] = [];
   let order = 0;
-  for (const it of main) {
-    const last = blocks[blocks.length - 1];
-    if (last && last.items[0]!.clipId === it.clipId) last.items.push(it);
-    else blocks.push({ at: (project.items[it.clipId] as Clip).startUs, order: order++, items: [it] });
+  const mainMuted = project.tracks.find((t) => t.kind === "main")?.muted === true;
+  let cursor = 0;
+  for (const clip of mainClips(project)) {
+    const at = project.freeMain ? clip.startUs : cursor;
+    cursor = at + clipDurationUs(clip, project.settings.cut);
+    const items = clipItems(project, transcripts, clip, false, clip.muted || mainMuted);
+    if (items.length) blocks.push({ at, order: order++, items });
   }
-  for (const track of project.tracks) {
-    if (track.kind !== "audio" || track.muted) continue;
-    for (const id of track.items) {
-      const clip = project.items[id];
-      if (clip?.type !== "clip" || clip.muted) continue;
-      const t = transcripts[clip.mediaId];
-      if (!t) continue;
-      const fixes = project.wordFixes[clip.mediaId] ?? {};
-      const speed = clip.speed > 0 ? clip.speed : 1;
-      const items: SeqItem[] = [];
-      for (const w of t.words) {
-        const mid = (w.startUs + w.endUs) / 2;
-        if (mid < clip.sourceInUs || mid >= clip.sourceOutUs) continue;
-        const fix = fixes[w.id];
-        const a = Math.max(w.startUs, clip.sourceInUs);
-        const b = Math.min(w.endUs, clip.sourceOutUs);
-        items.push({
-          kind: "word", clipId: clip.id, mediaId: clip.mediaId, wordId: w.id, text: fix ?? w.text, startUs: a, endUs: b, removed: false, voice: true,
-          tlStartUs: clip.startUs + Math.round((a - clip.sourceInUs) / speed),
-          tlEndUs: clip.startUs + Math.round((b - clip.sourceInUs) / speed),
-          ...(fix ? { fixed: true } : {}),
-        });
+  if (options.voice !== false) {
+    for (const track of project.tracks) {
+      if (track.kind !== "audio" || track.muted) continue;
+      for (const id of track.items) {
+        const clip = project.items[id];
+        if (clip?.type !== "clip" || clip.muted) continue;
+        const items = clipItems(project, transcripts, clip, true, false);
+        if (items.length) blocks.push({ at: clip.startUs, order: order++, items });
       }
-      if (items.length) blocks.push({ at: clip.startUs, order: order++, items });
     }
   }
+  // Main clips keep their play order; spoken audio goes in by where it starts.
   blocks.sort((p, q) => p.at - q.at || p.order - q.order);
   return blocks.flatMap((b) => b.items);
 }
 
-function mainSequence(project: Project, transcripts: Transcripts): SeqItem[] {
-  const out: SeqItem[] = [];
-  const mainMuted = project.tracks.find((t) => t.kind === "main")?.muted === true;
-  for (const clip of mainClips(project)) {
-    const t = transcripts[clip.mediaId];
-    if (!t) continue;
-    const fixes = project.wordFixes[clip.mediaId] ?? {};
-    let prevEnd = clip.sourceInUs;
-    const push = (item: Omit<SeqItem, "removed" | "why">) => {
-      const why = removedAt(clip, Math.floor((item.startUs + item.endUs) / 2));
-      const silent = clip.muted || mainMuted ? { silent: true } : {};
-      out.push(why ? { ...item, ...silent, removed: true, why } : { ...item, ...silent, removed: false });
-    };
-    const pause = (from: Us, to: Us) => {
-      if (to - from >= PAUSE_US) push({ kind: "pause", clipId: clip.id, mediaId: clip.mediaId, text: ((to - from) / 1e6).toFixed(1) + "s", startUs: from, endUs: to });
-    };
-    for (const w of t.words) {
-      const mid = (w.startUs + w.endUs) / 2;
-      if (mid < clip.sourceInUs || mid >= clip.sourceOutUs) continue;
-      pause(prevEnd, w.startUs);
-      const fix = fixes[w.id];
-      push({
-        kind: "word",
-        clipId: clip.id,
-        mediaId: clip.mediaId,
-        wordId: w.id,
-        text: fix ?? w.text,
-        startUs: Math.max(w.startUs, clip.sourceInUs),
-        endUs: Math.min(w.endUs, clip.sourceOutUs),
-        ...(fix ? { fixed: true } : {}),
-        ...(w.guessed || (w.conf !== undefined && w.conf < 0.4) ? { lowConfidence: true } : {}),
-      });
-      prevEnd = Math.max(prevEnd, w.endUs);
-    }
-    pause(prevEnd, clip.sourceOutUs);
+/** Where a moment of a clip's source plays on the timeline, for a clip that sits at its own start time. */
+function clipTimeline(clip: Clip, kept: [Us, Us][], srcUs: Us): Us {
+  const speed = clip.speed > 0 ? clip.speed : 1;
+  let t = clip.startUs;
+  for (const [s, e] of kept) {
+    if (srcUs < s) return t;
+    if (srcUs < e) return t + Math.round((srcUs - s) / speed);
+    t += Math.round((e - s) / speed);
   }
+  return t;
+}
+
+/** One clip's words and pauses (pauses of at least PAUSE_US), in source order. */
+function clipItems(project: Project, transcripts: Transcripts, clip: Clip, voice: boolean, muted: boolean): SeqItem[] {
+  const t = transcripts[clip.mediaId];
+  if (!t) return [];
+  const out: SeqItem[] = [];
+  const fixes = project.wordFixes[clip.mediaId] ?? {};
+  const kept = voice ? keptRanges(clip, project.settings.cut) : [];
+  let prevEnd = clip.sourceInUs;
+  const push = (item: Omit<SeqItem, "removed" | "why">) => {
+    const why = removedAt(clip, Math.floor((item.startUs + item.endUs) / 2));
+    const extra: Partial<SeqItem> = muted ? { silent: true } : {};
+    if (voice) {
+      extra.voice = true;
+      extra.tlStartUs = clipTimeline(clip, kept, item.startUs);
+      extra.tlEndUs = Math.max(extra.tlStartUs, clipTimeline(clip, kept, item.endUs));
+    }
+    out.push(why ? { ...item, ...extra, removed: true, why } : { ...item, ...extra, removed: false });
+  };
+  const pause = (from: Us, to: Us) => {
+    if (to - from >= PAUSE_US) push({ kind: "pause", clipId: clip.id, mediaId: clip.mediaId, text: ((to - from) / 1e6).toFixed(1) + "s", startUs: from, endUs: to });
+  };
+  for (const w of t.words) {
+    const mid = (w.startUs + w.endUs) / 2;
+    if (mid < clip.sourceInUs || mid >= clip.sourceOutUs) continue;
+    pause(prevEnd, w.startUs);
+    const fix = fixes[w.id];
+    push({
+      kind: "word",
+      clipId: clip.id,
+      mediaId: clip.mediaId,
+      wordId: w.id,
+      text: fix ?? w.text,
+      startUs: Math.max(w.startUs, clip.sourceInUs),
+      endUs: Math.min(w.endUs, clip.sourceOutUs),
+      ...(fix ? { fixed: true } : {}),
+      ...(w.guessed || (w.conf !== undefined && w.conf < 0.4) ? { lowConfidence: true } : {}),
+    });
+    prevEnd = Math.max(prevEnd, w.endUs);
+  }
+  pause(prevEnd, clip.sourceOutUs);
   return out;
 }
 
@@ -191,7 +197,6 @@ function cutSpan(project: Project, seq: SeqItem[], first: number, last: number):
 export function removeItemsOps(project: Project, seq: SeqItem[], from: number, to: number, why: RemovedWhy = "user"): Op[] {
   const ops: Op[] = [];
   for (const [a, b] of runsByClip(seq, from, to)) {
-    if (seq[a]!.voice) continue;
     // Skip what is already removed at the edges so a repeat delete adds nothing.
     let first = a;
     let last = b;
@@ -210,7 +215,6 @@ export function removeItemsOps(project: Project, seq: SeqItem[], from: number, t
 export function restoreItemsOps(project: Project, seq: SeqItem[], from: number, to: number): Op[] {
   const ops: Op[] = [];
   for (const [a, b] of runsByClip(seq, from, to)) {
-    if (seq[a]!.voice) continue;
     const clip = project.items[seq[a]!.clipId] as Clip;
     // Restore reaches to the neighbours, mirroring how a delete was cut.
     const before = seq[a - 1];

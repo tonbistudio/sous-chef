@@ -33,7 +33,7 @@ export function captionCues(project: Project, transcripts: Transcripts, plan: Pl
   // While a voiceover speaks, it is the narration: the take underneath gets no captions there.
   const spoken: [Us, Us][] = [];
   for (const it of seq) {
-    if (!it.voice) continue;
+    if (!it.voice || it.kind !== "word" || it.removed) continue;
     const last = spoken[spoken.length - 1];
     if (last && it.tlStartUs! - last[1] < BREAK_GAP_US) last[1] = Math.max(last[1], it.tlEndUs!);
     else spoken.push([it.tlStartUs!, it.tlEndUs!]);

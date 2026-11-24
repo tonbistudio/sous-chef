@@ -216,8 +216,18 @@ function maxGrow(editor: Editor, c: { mediaId: string; sourceInUs: number; sourc
 
 /** A video or audio track: its clips sit at their own times. Drag to move; click to select. */
 function TrackLane({ editor, pps, trackId, onSnap }: { editor: Editor; pps: number; trackId: string; onSnap: (us: number | null) => void }) {
-  const [drag, setDrag] = useState<{ id: string; x: number; dx: number; mode: EdgeMode } | null>(null);
+  const [drag, setDrag] = useState<{ id: string; x: number; y: number; dx: number; dy: number; mode: EdgeMode } | null>(null);
   const track = editor.project.tracks.find((t) => t.id === trackId)!;
+  /** The lane of this lane's kind under the pointer, for dragging a clip to another lane. */
+  const laneUnder = (x: number, y: number): string | null => {
+    for (const el of document.elementsFromPoint(x, y)) {
+      const id = (el as HTMLElement).dataset?.track;
+      if (!id) continue;
+      const t = editor.project.tracks.find((tr) => tr.id === id);
+      return t && t.kind === track.kind ? id : null;
+    }
+    return null;
+  };
   const spans = new Map<string, { start: number; end: number; still: boolean }>();
   for (const s of editor.plan.segments) {
     if (s.trackId !== trackId) continue;
@@ -232,18 +242,19 @@ function TrackLane({ editor, pps, trackId, onSnap }: { editor: Editor; pps: numb
         if (!c || c.type !== "clip" || !span) return null;
         const media = editor.project.media.find((m) => m.id === c.mediaId);
         const dx = drag?.id === id ? drag.dx : 0;
+        const dy = drag?.id === id && drag.mode === "move" ? drag.dy : 0;
         const mode = drag?.id === id ? drag.mode : "move";
         const w = ((span.end - span.start) / S) * pps;
         return (
           <div
             key={id}
-            className={"layer-block " + track.kind + (span.still ? " still" : "") + (id === editor.selectedClipId ? " selected" : "")}
-            style={edgeStyle(PAD + (span.start / S) * pps, w, dx, mode)}
-            title={`${media ? baseName(media.path) : id}. Drag to move, drag an edge to make it longer or shorter.`}
+            className={"layer-block " + track.kind + (span.still ? " still" : "") + (id === editor.selectedClipId ? " selected" : "") + (c.link ? " linked" : "") + (dy ? " lifting" : "")}
+            style={{ ...edgeStyle(PAD + (span.start / S) * pps, w, dx, mode), ...(dy ? { transform: `translateY(${dy}px)`, zIndex: 5 } : {}) }}
+            title={`${media ? baseName(media.path) : id}.${c.link ? " Locked to the video: it moves with the footage under it." : ""} Drag to move (up or down to another lane), drag an edge to make it longer or shorter.`}
             onPointerDown={(e) => {
               e.stopPropagation();
               (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-              setDrag({ id, x: e.clientX, dx: 0, mode: edgeOf(e) });
+              setDrag({ id, x: e.clientX, y: e.clientY, dx: 0, dy: 0, mode: edgeOf(e) });
               editor.selectZoom(null);
               editor.selectOverlay(null);
               editor.selectClip(id);
@@ -258,7 +269,8 @@ function TrackLane({ editor, pps, trackId, onSnap }: { editor: Editor; pps: numb
                 return;
               }
               const sn = snapMove(editor, span.start + (raw / pps) * S, span.end - span.start, pps, id, e.altKey);
-              setDrag({ ...drag, dx: ((sn.us - span.start) / S) * pps });
+              const rawY = e.clientY - drag.y;
+              setDrag({ ...drag, dx: ((sn.us - span.start) / S) * pps, dy: Math.abs(rawY) > 8 ? rawY : 0 });
               onSnap(Math.abs(raw) > 3 ? sn.lineUs : null);
             }}
             onPointerCancel={() => { onSnap(null); if (drag?.id === id) setDrag(null); }}
@@ -268,7 +280,9 @@ function TrackLane({ editor, pps, trackId, onSnap }: { editor: Editor; pps: numb
               onSnap(null);
               if (drag?.id !== id) return;
               setDrag(null);
-              if (Math.abs(drag.dx) < 3) return;
+              const toLane = drag.mode === "move" && drag.dy ? laneUnder(e.clientX, e.clientY) : null;
+              const otherLane = toLane && toLane !== trackId ? toLane : null;
+              if (Math.abs(drag.dx) < 3 && !otherLane) return;
               const dUs = Math.round((drag.dx / pps) * S);
               if (drag.mode === "out") {
                 // Longer or shorter at the end: a picture just shows longer; a video uses more or less of its file.
@@ -283,10 +297,11 @@ function TrackLane({ editor, pps, trackId, onSnap }: { editor: Editor; pps: numb
                 void editor.run("Change clip length", [...ops, { op: "clip.move", clipId: id, startUs }]);
               } else {
                 const to = Math.max(0, Math.round(span.start + dUs));
-                void editor.run("Move clip", [{ op: "clip.move", clipId: id, startUs: to }]);
+                void editor.run(otherLane ? "Move clip to another lane" : "Move clip", [{ op: "clip.move", clipId: id, startUs: to, ...(otherLane ? { trackId: otherLane } : {}) }]);
               }
             }}
           >
+            {c.link && <span className="link-pin" aria-label="Locked to the video"><Icon name="link" size={12} /></span>}
             {media ? baseName(media.path) : id}
             <b className="edge in" data-edge="in" />
             <b className="edge out" data-edge="out" />

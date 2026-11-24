@@ -108,20 +108,23 @@ export function VoiceoverButton({ editor: current }: { editor: Editor }) {
     try {
       const blob = new Blob(r.chunks, { type: r.recorder.mimeType || "audio/webm" });
       const { path } = await api.uploadRecording(editor.pid, blob, local.get("sous.voClean") !== "0");
-      const project = editor.project;
-      let track = project.tracks.find((t) => t.kind === "audio" && t.name === "Voiceover");
-      const ops: Op[] = [];
-      const trackId = track?.id ?? `vo${Date.now().toString(36).slice(-5)}`;
-      if (!track) ops.push({ op: "track.add", kind: "audio", id: trackId, name: "Voiceover" });
-      ops.push({ op: "media.add", media: { path } as never });
-      const created = await editor.run(`Record voiceover at ${clock(startUs)}`, ops);
+      const created = await editor.run(`Record voiceover at ${clock(startUs)}`, [{ op: "media.add", media: { path } as never }]);
       const mediaId = created?.[created.length - 1];
       if (!mediaId) return;
-      let added = await editor.run("Place voiceover", [{ op: "clip.add", trackId, mediaId, startUs }]);
+      // It goes on the first audio lane with room for it, so lanes only multiply where takes overlap.
+      // Recorded against the picture, it starts locked to the footage under it (unlock it in Details).
+      const underPicture = editor.plan.segments.some((s) => s.trackKind === "main" && s.hasVideo && startUs >= s.tlStartUs && startUs < s.tlEndUs);
+      const clipId = `c${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;
+      const lock: Op[] = underPicture ? [{ op: "clip.set", clipId, linked: true }] : [];
+      const lanes = editor.project.tracks.filter((t) => t.kind === "audio" && !t.locked);
+      let added: unknown = null;
+      for (const t of lanes) {
+        added = await editor.run("Place voiceover", [{ op: "clip.add", trackId: t.id, mediaId, startUs, id: clipId }, ...lock], { quiet: true });
+        if (added) break;
+      }
       if (!added) {
-        // Something already sits there on the Voiceover track: use a new one.
-        const other = `vo${Date.now().toString(36).slice(-5)}`;
-        added = await editor.run("Place voiceover", [{ op: "track.add", kind: "audio", id: other, name: "Voiceover 2" }, { op: "clip.add", trackId: other, mediaId, startUs }]);
+        const lane = `vo${Date.now().toString(36).slice(-5)}`;
+        added = await editor.run("Place voiceover", [{ op: "track.add", kind: "audio", id: lane, name: lanes.length ? `Voiceover ${lanes.length + 1}` : "Voiceover" }, { op: "clip.add", trackId: lane, mediaId, startUs, id: clipId }, ...lock]);
       }
       editor.notify("Voiceover added. Transcribing it.");
       await api.transcribe(editor.pid, [mediaId]).catch(() => undefined);

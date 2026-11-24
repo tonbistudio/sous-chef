@@ -1,4 +1,4 @@
-import { clipDurationUs } from "./compile.js";
+import { clipDurationUs, compile, type Segment } from "./compile.js";
 import { mainClipsOf, mainEndUs, settleMain } from "./layout.js";
 import { clone, defaultTransform, diff, fillSettings } from "./project.js";
 import {
@@ -13,6 +13,7 @@ import {
   type Rect,
   type Track,
   type Transaction,
+  type Us,
   type Zoom,
   type Overlay,
   type TextStyle,
@@ -139,22 +140,25 @@ function checkRect(rect: Rect): void {
 }
 
 /** Length a clip occupies on the timeline, ignoring cut padding (used for overlap checks). */
-function roughDurationUs(c: Clip): number {
-  return Math.round((c.sourceOutUs - c.sourceInUs) / c.speed);
+function checkNoOverlap(p: Project, track: Track, clip: Clip): void {
+  const hit = overlapOn(p, track, clip);
+  if (hit) fail("conflict", `Clip would overlap clip "${hit}" on track "${track.id}"`);
 }
 
-function checkNoOverlap(p: Project, track: Track, clip: Clip): void {
-  if (track.kind === "main") return;
+/** The clip on a track (not the main track) that `clip` would overlap, by what each actually plays. */
+function overlapOn(p: Project, track: Track, clip: Clip): string | null {
+  if (track.kind === "main") return null;
   const a0 = clip.startUs;
-  const a1 = a0 + roughDurationUs(clip);
+  const a1 = a0 + clipDurationUs(clip, p.settings.cut);
   for (const id of track.items) {
     if (id === clip.id) continue;
     const other = p.items[id];
     if (!other || other.type !== "clip") continue;
     const b0 = other.startUs;
-    const b1 = b0 + roughDurationUs(other);
-    if (a0 < b1 && b0 < a1) fail("conflict", `Clip would overlap clip "${id}" on track "${track.id}"`);
+    const b1 = b0 + clipDurationUs(other, p.settings.cut);
+    if (a0 < b1 && b0 < a1) return id;
   }
+  return null;
 }
 
 function mediaFitsTrack(media: Media, track: Track): void {
@@ -548,6 +552,13 @@ function applyOp(p: Project, op: Op, by: Transaction["by"], opts: ApplyOptions):
         clip.volumeDb = op.volumeDb;
       }
       if (op.muted !== undefined) clip.muted = Boolean(op.muted);
+      if (op.linked !== undefined) {
+        if (!op.linked) delete clip.link;
+        else if (!clip.link) {
+          if (trackOf(p, clip.id).kind === "main") fail("invalid", "Clips on the main track are the picture; lock a voiceover or overlay to them instead");
+          clip.link = { mediaId: "", srcUs: 0 }; // filled in once the edit is done, from what plays under its start
+        }
+      }
       if (op.fadeInUs !== undefined) clip.fadeInUs = Math.max(0, needInt(op.fadeInUs, "fadeInUs"));
       if (op.fadeOutUs !== undefined) clip.fadeOutUs = Math.max(0, needInt(op.fadeOutUs, "fadeOutUs"));
       if (op.transform) {
@@ -913,6 +924,76 @@ function applyOp(p: Project, op: Op, by: Transaction["by"], opts: ApplyOptions):
 }
 
 /**
+ * Clips locked to the picture (a voiceover locked to the screen recording) keep their place in it.
+ *
+ * A locked clip remembers a moment of a main-track recording: the one playing where the clip starts.
+ * After every edit it is put back where that moment now plays, so footage added, removed or moved in
+ * front of it carries it along. Moving the locked clip itself (or splitting or trimming it) locks it to
+ * whatever is under its new start. When the moment was cut out, it goes where the recording picks up
+ * again. A clip that lands on another clip in its lane moves to a free lane of the same kind.
+ */
+function settleLinked(before: Project, after: Project, opts: ApplyOptions): void {
+  const linked: { clip: Clip; track: Track }[] = [];
+  for (const track of after.tracks) {
+    if (track.kind === "main") {
+      for (const id of track.items) {
+        const c = after.items[id];
+        if (c?.type === "clip" && c.link) delete c.link; // main-track clips are the picture itself
+      }
+      continue;
+    }
+    for (const id of track.items) {
+      const c = after.items[id];
+      if (c?.type === "clip" && c.link) linked.push({ clip: c, track });
+    }
+  }
+  if (!linked.length) return;
+  const main = compile(after).segments.filter((s) => s.trackKind === "main" && s.hasVideo);
+  const sourceAt = (tl: Us): { mediaId: string; srcUs: Us } | null => {
+    for (const s of main) if (tl >= s.tlStartUs && tl < s.tlEndUs) return { mediaId: s.mediaId, srcUs: s.srcInUs + Math.round((tl - s.tlStartUs) * s.speed) };
+    return null;
+  };
+  const placeOf = (mediaId: string, srcUs: Us): Us | null => {
+    let next: Segment | null = null;
+    for (const s of main) {
+      if (s.mediaId !== mediaId) continue;
+      if (srcUs >= s.srcInUs && srcUs < s.srcOutUs) return s.tlStartUs + Math.round((srcUs - s.srcInUs) / s.speed);
+      if (s.srcInUs >= srcUs && (!next || s.srcInUs < next.srcInUs)) next = s;
+    }
+    return next ? next.tlStartUs : null;
+  };
+  const moved: { clip: Clip; track: Track }[] = [];
+  for (const entry of linked) {
+    const { clip } = entry;
+    const prev = before.items[clip.id];
+    const own = !prev || prev.type !== "clip" || prev.startUs !== clip.startUs || !clip.link!.mediaId;
+    if (own) {
+      const hit = sourceAt(clip.startUs);
+      if (hit) clip.link = hit;
+      else if (!clip.link!.mediaId) fail("invalid", "There is no screen recording under the start of that clip to lock it to");
+      else delete clip.link;
+      continue;
+    }
+    const at = placeOf(clip.link!.mediaId, clip.link!.srcUs);
+    if (at === null || at === clip.startUs) continue;
+    clip.startUs = at;
+    moved.push(entry);
+  }
+  // Something it now lands on: the first lane of its kind with room, or a new lane just below.
+  moved.sort((a, b) => a.clip.startUs - b.clip.startUs);
+  for (const { clip, track } of moved) {
+    if (!overlapOn(after, track, clip)) continue;
+    track.items = track.items.filter((x) => x !== clip.id);
+    let to = after.tracks.find((t) => t.kind === track.kind && t.id !== track.id && !overlapOn(after, t, clip));
+    if (!to) {
+      to = { id: takeId(after, undefined, "t", opts), kind: track.kind, name: "", muted: false, locked: false, items: [] };
+      after.tracks.splice(after.tracks.indexOf(track) + 1, 0, to);
+    }
+    to.items.push(clip.id);
+  }
+}
+
+/**
  * A lane other than the main track goes away in the edit that takes its last clip, text or graphic off,
  * so the timeline is just the main track unless something is on top. A lane added empty in an edit is
  * kept (its clip may come in the next one); undo brings a removed lane back with its contents.
@@ -948,6 +1029,7 @@ export function applyTransaction(project: Project, tx: Transaction, opts: ApplyO
       throw err;
     }
   });
+  settleLinked(project, draft, opts);
   dropEmptiedLanes(project, draft);
   draft.revision = project.revision + 1;
   return { project: draft, forward: diff(project, draft), inverse: diff(draft, project), created };

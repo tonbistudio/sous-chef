@@ -1,4 +1,4 @@
-import { sourceToTimeline, type Proposal, type Suggestion } from "@sous-chef/core";
+import { clipSourceToTimeline, sourceToTimeline, type Proposal, type Suggestion } from "@sous-chef/core";
 import { useState } from "react";
 import { clock } from "./time";
 import type { Editor } from "./useEditor";
@@ -26,7 +26,7 @@ export function ProposalBar({ editor, proposal }: { editor: Editor; proposal: Pr
   };
   const jump = (item: Suggestion) => {
     if (!item.mediaId || item.atUs === undefined) return;
-    const tl = sourceToTimeline(editor.plan, item.mediaId, item.atUs + 1000);
+    const tl = (item.clipId ? clipSourceToTimeline(editor.plan, item.clipId, item.atUs + 1000) : null) ?? sourceToTimeline(editor.plan, item.mediaId, item.atUs + 1000);
     if (tl !== null) {
       editor.player.pause();
       editor.player.seek(Math.max(0, tl - 1_000_000));

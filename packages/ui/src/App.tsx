@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Icon } from "./icons";
 import logo from "./icon.png";
 import type { Op } from "@sous-chef/core";
-import { clipSpans, cutRangeOps, splitAtOp } from "./actions";
+import { clipSpans, cutRangeOps, splitClipsAtOps } from "./actions";
 import { api, subscribe, token } from "./api";
 import { Chat } from "./Chat";
 import { Library } from "./Library";
@@ -268,14 +268,15 @@ function EditorView({ editor, onClose }: { editor: Editor; onClose: () => void }
     });
   }, [editor, plan, range]);
 
+  // A selected clip under the playhead splits on its own; otherwise everything there splits together.
   const split = useCallback(() => {
-    const op = splitAtOp(plan, editor.player.tlUs);
-    if (!op) {
+    const ops = splitClipsAtOps(plan, editor.project, editor.player.tlUs, selectedClipId);
+    if (!ops.length) {
       editor.notify("Move the playhead inside a clip to split it.");
       return;
     }
-    void editor.run(`Split at ${clock(editor.player.tlUs)}`, [op]);
-  }, [editor, plan]);
+    void editor.run(`Split ${ops.length === 1 ? "" : `${ops.length} clips `}at ${clock(editor.player.tlUs)}`, ops);
+  }, [editor, plan, selectedClipId]);
 
   /** Removes the selected clip, leaving its space empty. With `closeUp`, later clips slide left to fill it. */
   const remove = useCallback(
@@ -305,7 +306,7 @@ function EditorView({ editor, onClose }: { editor: Editor; onClose: () => void }
         <button onClick={() => void editor.undo()} disabled={!history.canUndo} title={history.undo ? `Undo: ${history.undo} (Ctrl+Z)` : "Nothing to undo"} className="icon-only" aria-label="Undo"><Icon name="undo" /></button>
         <button onClick={() => void editor.redo()} disabled={!history.canRedo} title={history.redo ? `Redo: ${history.redo} (Ctrl+Shift+Z)` : "Nothing to redo"} className="icon-only" aria-label="Redo"><Icon name="redo" /></button>
         <span className="sep" />
-        <button onClick={split} disabled={plan.durationUs === 0} title="Split the clip at the playhead (S)" className="with-icon"><Icon name="split" />Split</button>
+        <button onClick={split} disabled={plan.durationUs === 0} title="Split at the playhead (S): the selected clip, or every clip under the playhead (video, voiceovers, music) when none is selected" className="with-icon"><Icon name="split" />Split</button>
         <button onClick={cut} disabled={!range} title="Cut the marked range (X or Delete)" className="with-icon"><Icon name="cut" />Cut range</button>
         <button onClick={() => remove(false)} disabled={!selectedClipId} title="Remove the selected clip and leave its space empty (Delete). Shift+Delete also closes the gap." className="with-icon"><Icon name="trash" />Remove clip</button>
         <span className="sep" />

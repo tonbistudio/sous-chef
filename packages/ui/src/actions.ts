@@ -1,1 +1,1 @@
-export { clipSpans, cutRangeOps, splitAtOp } from "@sous-chef/core";
+export { clipSpans, cutRangeOps, splitAtOp, splitClipsAtOps } from "@sous-chef/core";

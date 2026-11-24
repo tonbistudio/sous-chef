@@ -35,7 +35,8 @@ export interface Editor {
   toasts: Toast[];
   notify: (text: string, kind?: Toast["kind"]) => void;
   dismiss: (id: number) => void;
-  run: (summary: string, ops: Op[]) => Promise<(string | null)[] | null>;
+  /** Applies ops as one undo step. `quiet`: a refused edit just returns null, with no error shown. */
+  run: (summary: string, ops: Op[], options?: { quiet?: boolean }) => Promise<(string | null)[] | null>;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
   clips: Clip[];
@@ -225,7 +226,7 @@ export function useEditor(pid: string): Editor | null {
   // clicks never race on the same base revision (the second would be refused as stale and lost).
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const run = useCallback(
-    (summary: string, ops: Op[]) => {
+    (summary: string, ops: Op[], options?: { quiet?: boolean }) => {
       const next = queue.current.then(async () => {
         try {
           const res = await api.apply(pid, revision.current, summary, ops);
@@ -233,7 +234,7 @@ export function useEditor(pid: string): Editor | null {
           await refresh();
           return res.created;
         } catch (e) {
-          fail(e);
+          if (!options?.quiet) fail(e);
           return null;
         }
       });
