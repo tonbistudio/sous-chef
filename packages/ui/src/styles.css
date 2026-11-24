@@ -253,6 +253,7 @@ input:not([type="range"]) {
 .transcript-hint { padding: 6px 10px 8px; font-size: 11px; border-top: 1px solid var(--line); line-height: 1.4; }
 
 /* ---- timeline lanes */
+.track-canvas-clip { position: absolute; inset: 0; overflow: hidden; pointer-events: none; border-radius: inherit; }
 .track-canvas { position: absolute; left: 0; top: 0; height: 72px; pointer-events: none; background: var(--track); }
 .clip-name { text-shadow: 0 1px 2px #000; }
 .lane { position: relative; height: 24px; margin-top: 6px; border-bottom: 1px dashed var(--line); }

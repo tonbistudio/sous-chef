@@ -948,19 +948,36 @@ function settleLinked(before: Project, after: Project, opts: ApplyOptions): void
     }
   }
   if (!linked.length) return;
-  const main = compile(after).segments.filter((s) => s.trackKind === "main" && s.hasVideo);
-  const sourceAt = (tl: Us): { mediaId: string; srcUs: Us } | null => {
-    for (const s of main) if (tl >= s.tlStartUs && tl < s.tlEndUs) return { mediaId: s.mediaId, srcUs: s.srcInUs + Math.round((tl - s.tlStartUs) * s.speed) };
+  const mainOf = (p: Project) => compile(p).segments.filter((s) => s.trackKind === "main" && s.hasVideo);
+  const main = mainOf(after);
+  let old: Segment[] | null = null;
+  const sourceAt = (segs: Segment[], tl: Us): { mediaId: string; srcUs: Us; clipId: string } | null => {
+    for (const s of segs) if (tl >= s.tlStartUs && tl < s.tlEndUs) return { mediaId: s.mediaId, srcUs: s.srcInUs + Math.round((tl - s.tlStartUs) * s.speed), clipId: s.clipId };
     return null;
   };
-  const placeOf = (mediaId: string, srcUs: Us): Us | null => {
-    let next: Segment | null = null;
+  // Where the remembered moment plays now. The same footage can be on the timeline more than once (a
+  // recording added twice, or a clip split in two), so the clip it was locked to wins, then the copy
+  // nearest to where it was. A moment that was cut out goes where that footage picks up again.
+  const placeOf = (link: { mediaId: string; srcUs: Us; clipId?: string }, near: Us): { at: Us; clipId: string } | null => {
+    const score = (s: Segment, at: Us) => (s.clipId === link.clipId ? -1 : Math.abs(at - near));
+    let best: { at: Us; clipId: string; score: number } | null = null;
     for (const s of main) {
-      if (s.mediaId !== mediaId) continue;
-      if (srcUs >= s.srcInUs && srcUs < s.srcOutUs) return s.tlStartUs + Math.round((srcUs - s.srcInUs) / s.speed);
-      if (s.srcInUs >= srcUs && (!next || s.srcInUs < next.srcInUs)) next = s;
+      if (s.mediaId !== link.mediaId || link.srcUs < s.srcInUs || link.srcUs >= s.srcOutUs) continue;
+      const at = s.tlStartUs + Math.round((link.srcUs - s.srcInUs) / s.speed);
+      const sc = score(s, at);
+      if (!best || sc < best.score) best = { at, clipId: s.clipId, score: sc };
     }
-    return next ? next.tlStartUs : null;
+    if (best) return best;
+    // Cut out: the nearest later footage of that recording, in the same clip if there is any.
+    let next: Segment | null = null;
+    const rank = (s: Segment) => [s.clipId === link.clipId ? 0 : 1, s.srcInUs - link.srcUs, Math.abs(s.tlStartUs - near)];
+    for (const s of main) {
+      if (s.mediaId !== link.mediaId || s.srcInUs < link.srcUs) continue;
+      if (!next) { next = s; continue; }
+      const a = rank(s), b = rank(next);
+      if (a[0]! < b[0]! || (a[0] === b[0] && (a[1]! < b[1]! || (a[1] === b[1] && a[2]! < b[2]!)))) next = s;
+    }
+    return next ? { at: next.tlStartUs, clipId: next.clipId } : null;
   };
   const moved: { clip: Clip; track: Track }[] = [];
   for (const entry of linked) {
@@ -968,15 +985,28 @@ function settleLinked(before: Project, after: Project, opts: ApplyOptions): void
     const prev = before.items[clip.id];
     const own = !prev || prev.type !== "clip" || prev.startUs !== clip.startUs || !clip.link!.mediaId;
     if (own) {
-      const hit = sourceAt(clip.startUs);
-      if (hit) clip.link = hit;
-      else if (!clip.link!.mediaId) fail("invalid", "There is no screen recording under the start of that clip to lock it to");
+      // The clip itself was moved, split, trimmed or just locked: lock it to what is under its start.
+      // Its start was set against the timeline as it stood before this edit (a split or trim in the same
+      // edit as a cut on the main track must not pick up footage that only arrives with the cut).
+      old ??= mainOf(before);
+      const hit = sourceAt(old, clip.startUs) ?? sourceAt(main, clip.startUs);
+      if (hit) {
+        clip.link = hit;
+        const p = placeOf(hit, clip.startUs);
+        if (p && p.at !== clip.startUs) {
+          clip.startUs = p.at;
+          moved.push(entry);
+        }
+      } else if (!clip.link!.mediaId) fail("invalid", "There is no screen recording under the start of that clip to lock it to");
       else delete clip.link;
       continue;
     }
-    const at = placeOf(clip.link!.mediaId, clip.link!.srcUs);
-    if (at === null || at === clip.startUs) continue;
-    clip.startUs = at;
+    // Where it was, in the timeline as it stood: the starting guess for which copy of the footage it is with.
+    const p = placeOf(clip.link!, clip.startUs);
+    if (!p) continue;
+    clip.link = { ...clip.link!, clipId: p.clipId };
+    if (p.at === clip.startUs) continue;
+    clip.startUs = p.at;
     moved.push(entry);
   }
   // Something it now lands on: the first lane of its kind with room, or a new lane just below.

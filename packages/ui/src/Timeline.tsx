@@ -497,7 +497,13 @@ const TrackCanvas = memo(function TrackCanvas({ plan, pid, prepared, pps, scroll
     };
   }, [scroller]);
 
-  return <canvas ref={canvas} className="track-canvas" height={TRACK_H} />;
+  // The canvas slides along with the scroll inside a clipped box, so it never holds the scroll area open
+  // past the end (after a big cut the timeline gets shorter and the scroll has to come back with it).
+  return (
+    <div className="track-canvas-clip">
+      <canvas ref={canvas} className="track-canvas" height={TRACK_H} />
+    </div>
+  );
 });
 
 type Drag =

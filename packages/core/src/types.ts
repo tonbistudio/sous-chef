@@ -143,7 +143,7 @@ export interface Clip {
    * Other tracks only: locked to the picture. The moment of a main-track recording that plays where this
    * clip starts; the clip follows that moment when footage before it is added, cut or moved.
    */
-  link?: { mediaId: string; srcUs: Us };
+  link?: { mediaId: string; srcUs: Us; clipId?: string };
 }
 
 /**

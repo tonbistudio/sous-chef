@@ -47,7 +47,7 @@ describe("voiceovers", () => {
 
   it("locked, it follows the recording when footage is added in front, cut before it, or moved", () => {
     let p = run(project(), { op: "clip.set", clipId: "v1", linked: true });
-    expect(clip(p, "v1").link).toEqual({ mediaId: "rec", srcUs: 5 * S });
+    expect(clip(p, "v1").link).toMatchObject({ mediaId: "rec", srcUs: 5 * S, clipId: "c1" });
     p = run(p, { op: "clip.add", trackId: "main", mediaId: "intro", index: 0 });
     expect(clip(p, "v1").startUs).toBe(15 * S);
     // Unlocked v2 stays put.
@@ -62,7 +62,7 @@ describe("voiceovers", () => {
   it("dragging a locked voiceover locks it to the new moment; unlocking lets it go", () => {
     let p = run(project(), { op: "clip.set", clipId: "v1", linked: true });
     p = run(p, { op: "clip.move", clipId: "v1", startUs: 8 * S });
-    expect(clip(p, "v1").link).toEqual({ mediaId: "rec", srcUs: 8 * S });
+    expect(clip(p, "v1").link).toMatchObject({ mediaId: "rec", srcUs: 8 * S });
     p = run(p, { op: "clip.set", clipId: "v1", linked: false });
     p = run(p, { op: "clip.add", trackId: "main", mediaId: "intro", index: 0 });
     expect(clip(p, "v1").startUs).toBe(8 * S);
@@ -71,9 +71,37 @@ describe("voiceovers", () => {
   it("both halves of a split locked voiceover stay locked to their own moment", () => {
     let p = run(project(), { op: "clip.set", clipId: "v1", linked: true });
     p = run(p, { op: "clip.split", clipId: "v1", atSourceUs: 2 * S, newId: "v1b" });
-    expect(clip(p, "v1b").link).toEqual({ mediaId: "rec", srcUs: 7 * S });
+    expect(clip(p, "v1b").link).toMatchObject({ mediaId: "rec", srcUs: 7 * S });
     p = run(p, { op: "clip.add", trackId: "main", mediaId: "intro", index: 0 });
     expect([clip(p, "v1").startUs, clip(p, "v1b").startUs]).toEqual([15 * S, 17 * S]);
+  });
+
+  it("stays with its own clip when the same recording is on the timeline twice", () => {
+    let p = run(project(), { op: "clip.set", clipId: "v1", linked: true });
+    // The whole recording added again in front: the same moment now also plays at 5 s, in the new copy.
+    p = run(p, { op: "clip.add", trackId: "main", mediaId: "rec", index: 0, id: "copy" });
+    expect(clip(p, "v1").startUs).toBe(35 * S);
+    // Further edits keep it with c1, not the copy.
+    p = run(p, { op: "range.remove", clipId: "copy", startUs: 20 * S, endUs: 30 * S, pad: false });
+    expect(clip(p, "v1").startUs).toBe(25 * S);
+    p = run(p, { op: "clip.set", clipId: "v2", volumeDb: -3 });
+    expect(clip(p, "v1").startUs).toBe(25 * S);
+  });
+
+  it("follows its half when the recording under it is split and moved", () => {
+    let p = run(project(), { op: "clip.set", clipId: "v1", linked: true });
+    p = run(p, { op: "clip.split", clipId: "c1", atSourceUs: 3 * S, newId: "c1b" });
+    expect(clip(p, "v1").startUs).toBe(5 * S);
+    p = run(p, { op: "clip.add", trackId: "main", mediaId: "intro", index: 1 });
+    // The intro went between the halves; v1 is 2 s into the second half, which now starts at 13 s.
+    expect(clip(p, "v1").startUs).toBe(15 * S);
+  });
+
+  it("a split and a cut in front in the same edit lock each half to its own moment", () => {
+    let p = run(project(), { op: "clip.set", clipId: "v1", linked: true });
+    p = run(p, { op: "range.remove", clipId: "c1", startUs: 0, endUs: 2 * S, pad: false }, { op: "clip.split", clipId: "v1", atSourceUs: 2 * S, newId: "v1b" });
+    expect(clip(p, "v1b").link).toMatchObject({ srcUs: 7 * S });
+    expect([clip(p, "v1").startUs, clip(p, "v1b").startUs]).toEqual([3 * S, 5 * S]);
   });
 
   it("undo puts a locked voiceover back with the footage", () => {
