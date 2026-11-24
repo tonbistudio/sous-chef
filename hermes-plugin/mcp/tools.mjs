@@ -1,4 +1,39 @@
 // packages/core/dist/compile.js
+var MIN_KEEP_US = 1e3;
+function keptRanges(clip, cut) {
+  const holes = [];
+  for (const r of clip.removed) {
+    let s = r.startUs;
+    let e = r.endUs;
+    if (r.pad) {
+      if (s > clip.sourceInUs)
+        s += cut.tailPadUs;
+      if (e < clip.sourceOutUs)
+        e -= cut.headPadUs;
+    }
+    s = Math.max(s, clip.sourceInUs);
+    e = Math.min(e, clip.sourceOutUs);
+    if (e > s)
+      holes.push([s, e]);
+  }
+  holes.sort((a, b) => a[0] - b[0]);
+  const kept = [];
+  let cursor = clip.sourceInUs;
+  for (const [s, e] of holes) {
+    if (s - cursor >= MIN_KEEP_US)
+      kept.push([cursor, s]);
+    cursor = Math.max(cursor, e);
+  }
+  if (clip.sourceOutUs - cursor >= MIN_KEEP_US)
+    kept.push([cursor, clip.sourceOutUs]);
+  return kept;
+}
+function clipDurationUs(clip, cut) {
+  let total = 0;
+  for (const [s, e] of keptRanges(clip, cut))
+    total += Math.round((e - s) / clip.speed);
+  return total;
+}
 function sourceToTimeline(plan, mediaId, srcUs) {
   for (const seg of plan.segments) {
     if (seg.trackKind !== "main" || seg.mediaId !== mediaId)
@@ -80,99 +115,88 @@ function removedAt(clip, us) {
   return null;
 }
 function sequence(project, transcripts, options = {}) {
-  const main = mainSequence(project, transcripts);
-  if (!options.voice)
-    return main;
   const blocks = [];
   let order = 0;
-  for (const it of main) {
-    const last = blocks[blocks.length - 1];
-    if (last && last.items[0].clipId === it.clipId)
-      last.items.push(it);
-    else
-      blocks.push({ at: project.items[it.clipId].startUs, order: order++, items: [it] });
+  const mainMuted = project.tracks.find((t) => t.kind === "main")?.muted === true;
+  let cursor = 0;
+  for (const clip of mainClips(project)) {
+    const at = project.freeMain ? clip.startUs : cursor;
+    cursor = at + clipDurationUs(clip, project.settings.cut);
+    const items = clipItems(project, transcripts, clip, false, clip.muted || mainMuted);
+    if (items.length)
+      blocks.push({ at, order: order++, items });
   }
-  for (const track of project.tracks) {
-    if (track.kind !== "audio" || track.muted)
-      continue;
-    for (const id of track.items) {
-      const clip = project.items[id];
-      if (clip?.type !== "clip" || clip.muted)
+  if (options.voice !== false) {
+    for (const track of project.tracks) {
+      if (track.kind !== "audio" || track.muted)
         continue;
-      const t = transcripts[clip.mediaId];
-      if (!t)
-        continue;
-      const fixes = project.wordFixes[clip.mediaId] ?? {};
-      const speed = clip.speed > 0 ? clip.speed : 1;
-      const items = [];
-      for (const w of t.words) {
-        const mid = (w.startUs + w.endUs) / 2;
-        if (mid < clip.sourceInUs || mid >= clip.sourceOutUs)
+      for (const id of track.items) {
+        const clip = project.items[id];
+        if (clip?.type !== "clip" || clip.muted)
           continue;
-        const fix = fixes[w.id];
-        const a = Math.max(w.startUs, clip.sourceInUs);
-        const b = Math.min(w.endUs, clip.sourceOutUs);
-        items.push({
-          kind: "word",
-          clipId: clip.id,
-          mediaId: clip.mediaId,
-          wordId: w.id,
-          text: fix ?? w.text,
-          startUs: a,
-          endUs: b,
-          removed: false,
-          voice: true,
-          tlStartUs: clip.startUs + Math.round((a - clip.sourceInUs) / speed),
-          tlEndUs: clip.startUs + Math.round((b - clip.sourceInUs) / speed),
-          ...fix ? { fixed: true } : {}
-        });
+        const items = clipItems(project, transcripts, clip, true, false);
+        if (items.length)
+          blocks.push({ at: clip.startUs, order: order++, items });
       }
-      if (items.length)
-        blocks.push({ at: clip.startUs, order: order++, items });
     }
   }
   blocks.sort((p, q) => p.at - q.at || p.order - q.order);
   return blocks.flatMap((b) => b.items);
 }
-function mainSequence(project, transcripts) {
-  const out = [];
-  const mainMuted = project.tracks.find((t) => t.kind === "main")?.muted === true;
-  for (const clip of mainClips(project)) {
-    const t = transcripts[clip.mediaId];
-    if (!t)
-      continue;
-    const fixes = project.wordFixes[clip.mediaId] ?? {};
-    let prevEnd = clip.sourceInUs;
-    const push = (item) => {
-      const why = removedAt(clip, Math.floor((item.startUs + item.endUs) / 2));
-      const silent = clip.muted || mainMuted ? { silent: true } : {};
-      out.push(why ? { ...item, ...silent, removed: true, why } : { ...item, ...silent, removed: false });
-    };
-    const pause = (from, to) => {
-      if (to - from >= PAUSE_US)
-        push({ kind: "pause", clipId: clip.id, mediaId: clip.mediaId, text: ((to - from) / 1e6).toFixed(1) + "s", startUs: from, endUs: to });
-    };
-    for (const w of t.words) {
-      const mid = (w.startUs + w.endUs) / 2;
-      if (mid < clip.sourceInUs || mid >= clip.sourceOutUs)
-        continue;
-      pause(prevEnd, w.startUs);
-      const fix = fixes[w.id];
-      push({
-        kind: "word",
-        clipId: clip.id,
-        mediaId: clip.mediaId,
-        wordId: w.id,
-        text: fix ?? w.text,
-        startUs: Math.max(w.startUs, clip.sourceInUs),
-        endUs: Math.min(w.endUs, clip.sourceOutUs),
-        ...fix ? { fixed: true } : {},
-        ...w.guessed || w.conf !== void 0 && w.conf < 0.4 ? { lowConfidence: true } : {}
-      });
-      prevEnd = Math.max(prevEnd, w.endUs);
-    }
-    pause(prevEnd, clip.sourceOutUs);
+function clipTimeline(clip, kept, srcUs) {
+  const speed = clip.speed > 0 ? clip.speed : 1;
+  let t = clip.startUs;
+  for (const [s, e] of kept) {
+    if (srcUs < s)
+      return t;
+    if (srcUs < e)
+      return t + Math.round((srcUs - s) / speed);
+    t += Math.round((e - s) / speed);
   }
+  return t;
+}
+function clipItems(project, transcripts, clip, voice, muted) {
+  const t = transcripts[clip.mediaId];
+  if (!t)
+    return [];
+  const out = [];
+  const fixes = project.wordFixes[clip.mediaId] ?? {};
+  const kept = voice ? keptRanges(clip, project.settings.cut) : [];
+  let prevEnd = clip.sourceInUs;
+  const push = (item) => {
+    const why = removedAt(clip, Math.floor((item.startUs + item.endUs) / 2));
+    const extra = muted ? { silent: true } : {};
+    if (voice) {
+      extra.voice = true;
+      extra.tlStartUs = clipTimeline(clip, kept, item.startUs);
+      extra.tlEndUs = Math.max(extra.tlStartUs, clipTimeline(clip, kept, item.endUs));
+    }
+    out.push(why ? { ...item, ...extra, removed: true, why } : { ...item, ...extra, removed: false });
+  };
+  const pause = (from, to) => {
+    if (to - from >= PAUSE_US)
+      push({ kind: "pause", clipId: clip.id, mediaId: clip.mediaId, text: ((to - from) / 1e6).toFixed(1) + "s", startUs: from, endUs: to });
+  };
+  for (const w of t.words) {
+    const mid = (w.startUs + w.endUs) / 2;
+    if (mid < clip.sourceInUs || mid >= clip.sourceOutUs)
+      continue;
+    pause(prevEnd, w.startUs);
+    const fix = fixes[w.id];
+    push({
+      kind: "word",
+      clipId: clip.id,
+      mediaId: clip.mediaId,
+      wordId: w.id,
+      text: fix ?? w.text,
+      startUs: Math.max(w.startUs, clip.sourceInUs),
+      endUs: Math.min(w.endUs, clip.sourceOutUs),
+      ...fix ? { fixed: true } : {},
+      ...w.guessed || w.conf !== void 0 && w.conf < 0.4 ? { lowConfidence: true } : {}
+    });
+    prevEnd = Math.max(prevEnd, w.endUs);
+  }
+  pause(prevEnd, clip.sourceOutUs);
   return out;
 }
 function runsByClip(seq, from, to) {
@@ -218,8 +242,6 @@ function cutSpan(project, seq, first, last) {
 function removeItemsOps(project, seq, from, to, why = "user") {
   const ops = [];
   for (const [a, b] of runsByClip(seq, from, to)) {
-    if (seq[a].voice)
-      continue;
     let first = a;
     let last = b;
     while (first <= last && seq[first].removed)
@@ -239,8 +261,6 @@ function removeItemsOps(project, seq, from, to, why = "user") {
 function restoreItemsOps(project, seq, from, to) {
   const ops = [];
   for (const [a, b] of runsByClip(seq, from, to)) {
-    if (seq[a].voice)
-      continue;
     const clip = project.items[seq[a].clipId];
     const before = seq[a - 1];
     const after = seq[b + 1];
@@ -310,7 +330,7 @@ var TOOLS = [
   },
   {
     name: "edit_apply",
-    description: "Sous Chef: apply a batch of edits to a project as one undoable step. All ops succeed or none do. Pass the revision you last read as base_revision; a stale revision is rejected and you must read the project again. " + TIME_NOTE + " Ops in timeline time (preferred for cuts): {op:'timeline.cut', startUs, endUs} removes that stretch and closes the gap; {op:'timeline.split', atUs} splits the clip under that time. Main-track clips sit at their own start time and may leave empty space (it plays as black): {op:'clip.move', clipId, startUs} puts a clip anywhere (dropped onto another clip it goes in at the nearer edge and later clips move right); {op:'clip.remove', clipId} leaves its space empty; {op:'gap.close', atUs?} closes the gap at that time, or every gap when atUs is omitted. Cutting words or ranges inside a clip always closes up by itself. Timelines: a project can hold several, one open at a time (the project tool lists them). {op:'timeline.add', name?, width?, height?} starts and opens an empty one (16:9 1920x1080 unless a size is given); each timeline has its own frame size: {op:'timeline.size', width, height, frameFit?:'fill'|'fit'} sets the open one's (16:9 1920x1080, 9:16 1080x1920, 1:1 1080x1080, 4:5 1080x1350); with 'fill' a recording of another shape covers the frame (edges cut off) and you choose what shows by moving it with clip.set transform x/y, with 'fit' it shows whole with bars; {op:'timeline.switch', timelineId}; {op:'timeline.rename', timelineId, name}; {op:'timeline.remove', timelineId}; {op:'timeline.insert', timelineId, atUs?} copies another timeline's whole contents into the open one at that time (the end if omitted), moving later content right. Every other op acts on the open timeline. Ops on clips, in the source take's own time: {op:'clip.trim', clipId, sourceInUs?, sourceOutUs?}; {op:'clip.split', clipId, atSourceUs}; {op:'clip.move', clipId, index}; {op:'clip.remove', clipId}; {op:'range.remove', clipId, startUs, endUs} cuts inside a clip; {op:'range.restore', clipId, rangeIds:[...]} brings a cut back. Any clip on any track (voiceover, music, pictures, detached audio) is removed with {op:'clip.remove', clipId}; a whole extra track and its clips with {op:'track.remove', trackId}; {op:'track.set', trackId, name?, muted?}; {op:'media.remove', mediaId} takes an unused file out of the media bin (the file itself is never deleted). Media: {op:'media.add', media:{path}} imports a file in place; {op:'clip.add', trackId:'main', mediaId, sourceInUs?, sourceOutUs?, index?} puts it on the timeline. Zooms, pinned to the take: {op:'zoom.add', mediaId, startUs, endUs, rect:[x,y,w,h]} where rect is fractions 0..1 of the picture (left, top, width, height); {op:'zoom.set', zoomId, ...}; {op:'zoom.remove', zoomId}. Markers: {op:'marker.add', timeUs, label?}; {op:'marker.update', markerId, label?, timeUs?} (named markers are the video's chapters); {op:'marker.remove', markerId}. Text over the picture, in timeline time: {op:'overlay.add', kind:'text', startUs, durationUs, text, style?:{size (fraction of picture height, default 0.06), color:'#rrggbb', bold, box}, transform?:{x, y (offsets from centre, -0.5..0.5), scale, opacity}}; {op:'overlay.set', overlayId, ...}; {op:'overlay.remove', overlayId}. Text is not moved by zooms. HyperFrames graphics: {op:'overlay.add', kind:'hyperframes', template, params, startUs, durationUs, text (a short label for the timeline)}. Templates: 'lower-third' {title, subtitle, color}, 'callout' {text, color, x, y (pixels of its top-left in the frame: 1920x1080 on a 16:9 timeline, 1080x1920 on 9:16)}, 'title-card' {title, subtitle, color}, 'subscribe' {text, color, x, y (its middle)}, 'highlight' {color, x, y, w, h: a box drawn around part of the screen, in pixels}, 'arrow' {text, color, x, y (the tip)}, 'step' {number, text, color}, 'keys' {keys like 'Ctrl+Shift+P', color}, 'counter' {value, suffix, label, color}, 'quote' {text, author, color}, 'end-card' {title, subtitle, color: about 10 s, for YouTube end screens}; color is '#rrggbb'. Move or resize any overlay with {op:'overlay.set', overlayId, transform:{x, y, scale}} and change when it shows with startUs/durationUs. They render in the background (about 30 s each); export waits until they are ready and says so. Transitions between main-track clips that touch: {op:'clip.set', clipId (the later clip), transitionIn:{kind:'dissolve'|'wipe'|'slide'|'zoom'|'white'|'black', durationUs (0.1-4 s, centred on the cut)}}; transitionIn:null removes it. The video keeps its length. A cut inside one clip (where a stretch was cut out) takes a transition once it is a cut between two clips: in the same edit_apply, {op:'clip.split', clipId, atSourceUs (where the later piece starts in the take), newId} then {op:'clip.set', clipId: newId, transitionIn}; the picture does not change. Use them sparingly, at changes of topic, not on every cut. Pictures and extra video: {op:'track.add', kind:'video'|'audio'} then {op:'clip.add', trackId, mediaId, startUs (timeline time)}; pictures show for 5 s unless sourceOutUs is given; place with {op:'clip.set', clipId, transform:{x, y, scale, opacity, crop:[x,y,w,h]}, fadeInUs, fadeOutUs, volumeDb, muted}. Speed: {op:'project.speed', speed} plays the whole main track faster or slower (new projects start at the speed in the owner's preferences); text, pictures, music and markers keep their place against the recording. Main clips are framed with {op:'clip.set', clipId, transform:{x, y, scale, crop:[x,y,w,h]}} like pictures (scale 1, x 0, y 0, crop [0,0,1,1] is full frame). Captions come from the kept transcript words: {op:'settings.set', settings:{captions:{enabled:true, size?, position?:'bottom'|'middle'|'top', box?, uppercase?, maxWords?}}}. Fix a misheard word with {op:'word.fix', mediaId, wordId, text}. Loudness levelling on export: {op:'settings.set', settings:{audio:{normalize:true}}}.",
+    description: "Sous Chef: apply a batch of edits to a project as one undoable step. All ops succeed or none do. Pass the revision you last read as base_revision; a stale revision is rejected and you must read the project again. " + TIME_NOTE + " Ops in timeline time (preferred for cuts): {op:'timeline.cut', startUs, endUs} removes that stretch and closes the gap; {op:'timeline.split', atUs} splits the clip under that time. Main-track clips sit at their own start time and may leave empty space (it plays as black): {op:'clip.move', clipId, startUs} puts a clip anywhere (dropped onto another clip it goes in at the nearer edge and later clips move right); {op:'clip.remove', clipId} leaves its space empty; {op:'gap.close', atUs?} closes the gap at that time, or every gap when atUs is omitted. Cutting words or ranges inside a clip always closes up by itself. Timelines: a project can hold several, one open at a time (the project tool lists them). {op:'timeline.add', name?, width?, height?} starts and opens an empty one (16:9 1920x1080 unless a size is given); each timeline has its own frame size: {op:'timeline.size', width, height, frameFit?:'fill'|'fit'} sets the open one's (16:9 1920x1080, 9:16 1080x1920, 1:1 1080x1080, 4:5 1080x1350); with 'fill' a recording of another shape covers the frame (edges cut off) and you choose what shows by moving it with clip.set transform x/y, with 'fit' it shows whole with bars; {op:'timeline.switch', timelineId}; {op:'timeline.rename', timelineId, name}; {op:'timeline.remove', timelineId}; {op:'timeline.insert', timelineId, atUs?} copies another timeline's whole contents into the open one at that time (the end if omitted), moving later content right. Every other op acts on the open timeline. Ops on clips, in the source take's own time: {op:'clip.trim', clipId, sourceInUs?, sourceOutUs?}; {op:'clip.split', clipId, atSourceUs}; {op:'clip.move', clipId, index}; {op:'clip.remove', clipId}; {op:'range.remove', clipId, startUs, endUs} cuts inside a clip; {op:'range.restore', clipId, rangeIds:[...]} brings a cut back. Any clip on any track (voiceover, music, pictures, detached audio) is removed with {op:'clip.remove', clipId}; a whole extra track and its clips with {op:'track.remove', trackId}; {op:'track.set', trackId, name?, muted?}; {op:'media.remove', mediaId} takes an unused file out of the media bin (the file itself is never deleted). Media: {op:'media.add', media:{path}} imports a file in place; {op:'clip.add', trackId:'main', mediaId, sourceInUs?, sourceOutUs?, index?} puts it on the timeline. Zooms, pinned to the take: {op:'zoom.add', mediaId, startUs, endUs, rect:[x,y,w,h]} where rect is fractions 0..1 of the picture (left, top, width, height); {op:'zoom.set', zoomId, ...}; {op:'zoom.remove', zoomId}. Markers: {op:'marker.add', timeUs, label?}; {op:'marker.update', markerId, label?, timeUs?} (named markers are the video's chapters); {op:'marker.remove', markerId}. Text over the picture, in timeline time: {op:'overlay.add', kind:'text', startUs, durationUs, text, style?:{size (fraction of picture height, default 0.06), color:'#rrggbb', bold, box}, transform?:{x, y (offsets from centre, -0.5..0.5), scale, opacity}}; {op:'overlay.set', overlayId, ...}; {op:'overlay.remove', overlayId}. Text is not moved by zooms. HyperFrames graphics: {op:'overlay.add', kind:'hyperframes', template, params, startUs, durationUs, text (a short label for the timeline)}. Templates: 'lower-third' {title, subtitle, color}, 'callout' {text, color, x, y (pixels of its top-left in the frame: 1920x1080 on a 16:9 timeline, 1080x1920 on 9:16)}, 'title-card' {title, subtitle, color}, 'subscribe' {text, color, x, y (its middle)}, 'highlight' {color, x, y, w, h: a box drawn around part of the screen, in pixels}, 'arrow' {text, color, x, y (the tip)}, 'step' {number, text, color}, 'keys' {keys like 'Ctrl+Shift+P', color}, 'counter' {value, suffix, label, color}, 'quote' {text, author, color}, 'end-card' {title, subtitle, color: about 10 s, for YouTube end screens}; color is '#rrggbb'. Move or resize any overlay with {op:'overlay.set', overlayId, transform:{x, y, scale}} and change when it shows with startUs/durationUs. They render in the background (about 30 s each); export waits until they are ready and says so. Transitions between main-track clips that touch: {op:'clip.set', clipId (the later clip), transitionIn:{kind:'dissolve'|'wipe'|'slide'|'zoom'|'white'|'black', durationUs (0.1-4 s, centred on the cut)}}; transitionIn:null removes it. The video keeps its length. A cut inside one clip (where a stretch was cut out) takes a transition once it is a cut between two clips: in the same edit_apply, {op:'clip.split', clipId, atSourceUs (where the later piece starts in the take), newId} then {op:'clip.set', clipId: newId, transitionIn}; the picture does not change. Use them sparingly, at changes of topic, not on every cut. Pictures and extra video: {op:'track.add', kind:'video'|'audio'} then {op:'clip.add', trackId, mediaId, startUs (timeline time)}; pictures show for 5 s unless sourceOutUs is given; place with {op:'clip.set', clipId, transform:{x, y, scale, opacity, crop:[x,y,w,h]}, fadeInUs, fadeOutUs, volumeDb, muted}. Move a clip to another lane of its kind with {op:'clip.move', clipId, trackId, startUs}. A voiceover (or picture or music) can be locked to the video with {op:'clip.set', clipId, linked:true}: it then keeps its place against the screen recording under its start when footage before it is added, cut or moved; linked:false lets it go. Voiceover words are in the transcript like the main track's and are cut the same way (range.remove on the voiceover clip). Speed: {op:'project.speed', speed} plays the whole main track faster or slower (new projects start at the speed in the owner's preferences); text, pictures, music and markers keep their place against the recording. Main clips are framed with {op:'clip.set', clipId, transform:{x, y, scale, crop:[x,y,w,h]}} like pictures (scale 1, x 0, y 0, crop [0,0,1,1] is full frame). Captions come from the kept transcript words: {op:'settings.set', settings:{captions:{enabled:true, size?, position?:'bottom'|'middle'|'top', box?, uppercase?, maxWords?}}}. Fix a misheard word with {op:'word.fix', mediaId, wordId, text}. Loudness levelling on export: {op:'settings.set', settings:{audio:{normalize:true}}}.",
     inputSchema: {
       type: "object",
       properties: {
@@ -408,7 +428,7 @@ var TOOLS = [
   },
   {
     name: "publish",
-    description: "Sous Chef: the YouTube upload for a project, shown to the owner in the editor's Publish view. brief returns everything needed in one read: the owner's description template, thumbnail style and reference pictures, the channel name, the finished length, named markers, the current title/description/thumbnails, and an outline of what is said with times in the FINISHED video (after cuts and speed), which can be used as chapter times as they are. set saves title, titles (a list of options to pick from) and/or description; the owner sees it at once. add_thumbnail copies a finished picture (absolute path to .png/.jpg/.webp) into the project's thumbnail options with a one-line note; choose=true makes it the picked one. grab_frame saves the main video's picture at at_us (timeline time) as an option and returns its path, useful as a screenshot for a thumbnail. choose picks a thumbnail by file name; remove deletes one. settings_get / settings_set: the shared templates (description_template text, description_template_file path, thumbnail_style, thumbnail_refs, channel_name); change them only when the owner asks.",
+    description: "Sous Chef: the YouTube upload for a project, shown to the owner in the editor's Publish view. brief returns everything needed in one read: the owner's description template, thumbnail style and reference pictures, this video's own thumbnail instructions and reference pictures (thisVideo: each picture says whether to borrow its look or include it as it is), the channel name, the finished length, named markers, the current title/description/thumbnails, and an outline of what is said with times in the FINISHED video (after cuts and speed), which can be used as chapter times as they are. set saves title, titles (a list of options to pick from) and/or description; the owner sees it at once. add_thumbnail copies a finished picture (absolute path to .png/.jpg/.webp) into the project's thumbnail options with a one-line note; choose=true makes it the picked one. grab_frame saves the main video's picture at at_us (timeline time) as an option and returns its path, useful as a screenshot for a thumbnail. choose picks a thumbnail by file name; remove deletes one. settings_get / settings_set: the shared templates (description_template text, description_template_file path, thumbnail_style, thumbnail_refs, channel_name); change them only when the owner asks.",
     inputSchema: {
       type: "object",
       properties: {
