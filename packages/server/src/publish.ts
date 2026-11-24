@@ -18,7 +18,17 @@ export interface Thumbnail {
   by: "user" | "agent";
 }
 
+/** A picture the owner gave for this video's thumbnail: its look to borrow, or something to put in as it is. */
+export interface ThumbRef {
+  file: string;
+  use: "theme" | "include";
+}
+
 export interface PublishData {
+  /** What the owner wants on this video's thumbnail, in their words. */
+  thumbInstructions: string;
+  /** Reference pictures for this video's thumbnail, in publish/references/. */
+  thumbRefs: ThumbRef[];
   title: string;
   /** Other title ideas to pick from. */
   titles: string[];
@@ -42,13 +52,14 @@ export interface PublishSettings {
   channelName: string;
 }
 
-const EMPTY: PublishData = { title: "", titles: [], description: "", thumbnails: [] };
+const EMPTY: PublishData = { thumbInstructions: "", thumbRefs: [], title: "", titles: [], description: "", thumbnails: [] };
 const DEFAULT_SETTINGS: PublishSettings = { descriptionTemplate: "", descriptionTemplateFile: "", thumbnailStyle: "", thumbnailRefs: [], channelName: "" };
 const IMAGE = /\.(png|jpe?g|webp)$/i;
 const MAX_IMAGE = 25 * 1024 * 1024;
 
 const pubDir = (projectDir: string) => path.join(projectDir, "publish");
 export const thumbsDir = (projectDir: string) => path.join(pubDir(projectDir), "thumbnails");
+export const refsDir = (projectDir: string) => path.join(pubDir(projectDir), "references");
 
 async function readJson<T>(file: string, fallback: T): Promise<T> {
   try {
@@ -70,7 +81,9 @@ const str = (v: unknown, max: number) => String(v ?? "").slice(0, max);
 
 export async function readPublish(projectDir: string): Promise<PublishData> {
   const saved = await readJson<Partial<PublishData>>(path.join(pubDir(projectDir), "publish.json"), {});
-  const data: PublishData = { ...EMPTY, ...saved, titles: saved.titles ?? [], thumbnails: saved.thumbnails ?? [] };
+  const data: PublishData = { ...EMPTY, ...saved, titles: saved.titles ?? [], thumbnails: saved.thumbnails ?? [], thumbRefs: Array.isArray(saved.thumbRefs) ? saved.thumbRefs : [], thumbInstructions: typeof saved.thumbInstructions === "string" ? saved.thumbInstructions : "" };
+  const refs = existsSync(refsDir(projectDir)) ? await readdir(refsDir(projectDir)) : [];
+  data.thumbRefs = data.thumbRefs.filter((r) => r && typeof r.file === "string" && refs.includes(r.file)).map((r) => ({ file: r.file, use: r.use === "include" ? "include" : "theme" }));
   // Pictures dropped straight into the folder count too; ones deleted from it do not.
   const dir = thumbsDir(projectDir);
   const files = existsSync(dir) ? (await readdir(dir)).filter((f) => IMAGE.test(f)) : [];
@@ -86,8 +99,22 @@ export async function readPublish(projectDir: string): Promise<PublishData> {
   return data;
 }
 
-export async function writePublish(projectDir: string, patch: Partial<Pick<PublishData, "title" | "titles" | "description" | "chosen">>): Promise<PublishData> {
+export async function writePublish(projectDir: string, patch: Partial<Pick<PublishData, "title" | "titles" | "description" | "chosen" | "thumbInstructions" | "thumbRefs">>): Promise<PublishData> {
   const data = await readPublish(projectDir);
+  if (patch.thumbInstructions !== undefined) data.thumbInstructions = str(patch.thumbInstructions, 3000);
+  if (patch.thumbRefs !== undefined) {
+    // Only how each picture is used, and their order, change here; pictures are added and removed on their own.
+    if (!Array.isArray(patch.thumbRefs)) throw new Error("thumbRefs must be a list");
+    const have = new Map(data.thumbRefs.map((r) => [r.file, r]));
+    const next: ThumbRef[] = [];
+    for (const r of patch.thumbRefs as Partial<ThumbRef>[]) {
+      const hit = r && typeof r.file === "string" ? have.get(r.file) : undefined;
+      if (!hit) continue;
+      next.push({ file: hit.file, use: r.use === "include" ? "include" : "theme" });
+      have.delete(hit.file);
+    }
+    data.thumbRefs = [...next, ...have.values()];
+  }
   if (patch.title !== undefined) data.title = str(patch.title, 200).replace(/[\r\n]+/g, " ");
   if (patch.titles !== undefined) {
     if (!Array.isArray(patch.titles)) throw new Error("titles must be a list");
@@ -144,6 +171,34 @@ export async function removeThumbnail(projectDir: string, file: string): Promise
   if (!IMAGE.test(file) || file !== path.basename(file)) throw new Error(`No thumbnail "${file}"`);
   await rm(path.join(thumbsDir(projectDir), file), { force: true });
   return readPublish(projectDir);
+}
+
+/** Saves a reference picture for this video's thumbnail (pasted, dropped or picked). */
+export async function addThumbRef(projectDir: string, bytes: Buffer, ext: string): Promise<{ file: string; data: PublishData }> {
+  if (!/^(png|jpg|webp)$/.test(ext)) throw new Error("A reference must be a PNG, JPEG or WebP picture");
+  if (!bytes.length) throw new Error("The picture is empty");
+  if (bytes.length > MAX_IMAGE) throw new Error("That picture is too big (over 25 MB)");
+  const data = await readPublish(projectDir);
+  if (data.thumbRefs.length >= 8) throw new Error("Up to 8 reference pictures per video");
+  await mkdir(refsDir(projectDir), { recursive: true });
+  const file = `${stamp()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
+  await writeFile(path.join(refsDir(projectDir), file), bytes);
+  data.thumbRefs.push({ file, use: "theme" });
+  data.updatedAt = new Date().toISOString();
+  await writeJson(path.join(pubDir(projectDir), "publish.json"), data);
+  return { file, data: await readPublish(projectDir) };
+}
+
+export async function removeThumbRef(projectDir: string, file: string): Promise<PublishData> {
+  if (!IMAGE.test(file) || file !== path.basename(file)) throw new Error(`No reference "${file}"`);
+  await rm(path.join(refsDir(projectDir), file), { force: true });
+  return readPublish(projectDir);
+}
+
+export function thumbRefPath(projectDir: string, file: string): string | null {
+  if (!IMAGE.test(file) || file !== path.basename(file)) return null;
+  const p = path.join(refsDir(projectDir), file);
+  return existsSync(p) ? p : null;
 }
 
 export function thumbnailPath(projectDir: string, file: string): string | null {

@@ -127,7 +127,16 @@ export interface LibraryState {
 }
 
 export interface Thumbnail { file: string; note: string; createdAt: string; by: "user" | "agent" }
+export interface ThumbRef {
+  file: string;
+  use: "theme" | "include";
+}
+
 export interface PublishState {
+  /** Where this video's reference pictures live (sent with the full read only). */
+  referencesDir?: string;
+  thumbInstructions: string;
+  thumbRefs: ThumbRef[];
   title: string;
   titles: string[];
   description: string;
@@ -301,9 +310,17 @@ export const api = {
   setHermesProfile: (name: string) => call<{ hermesProfile: string }>("POST", "/api/preferences", { hermesProfile: name }),
   newProject: (name: string, folder?: string) => call<{ projectId: string; path: string }>("POST", "/api/projects/new", { name, ...(folder ? { folder } : {}) }),
   publish: (pid: string) => call<PublishState>("GET", `/api/p/${pid}/publish`),
-  savePublish: (pid: string, patch: Partial<Pick<PublishState, "title" | "titles" | "description" | "chosen">>) => call<PublishState>("POST", `/api/p/${pid}/publish`, patch),
+  savePublish: (pid: string, patch: Partial<Pick<PublishState, "title" | "titles" | "description" | "chosen" | "thumbInstructions" | "thumbRefs">>) => call<PublishState>("POST", `/api/p/${pid}/publish`, patch),
   addThumbnail: (pid: string, path: string) => call<PublishState>("POST", `/api/p/${pid}/publish/thumbnails`, { path, choose: true }),
   frameThumbnail: (pid: string, tlUs: number) => call<PublishState>("POST", `/api/p/${pid}/publish/thumbnails/frame`, { tlUs: Math.round(tlUs) }),
+  addThumbRef: async (pid: string, blob: Blob): Promise<PublishState> => {
+    const r = await fetch(`/api/p/${pid}/publish/references`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": blob.type || "application/octet-stream" }, body: blob });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body?.error?.message ?? `Could not add the picture (${r.status})`);
+    return body as PublishState;
+  },
+  removeThumbRef: (pid: string, file: string) => call<PublishState>("POST", `/api/p/${pid}/publish/references/${encodeURIComponent(file)}/delete`, {}),
+  thumbRefUrl: (pid: string, file: string) => `/api/p/${pid}/publish/references/${encodeURIComponent(file)}?token=${token}`,
   deleteThumbnail: (pid: string, file: string) => call<PublishState>("POST", `/api/p/${pid}/publish/thumbnails/${encodeURIComponent(file)}/delete`, {}),
   thumbnailUrl: (pid: string, file: string) => `/api/p/${pid}/publish/thumbnails/${encodeURIComponent(file)}?token=${token}`,
   publishSettings: () => call<PublishSettings>("GET", "/api/library/publish"),

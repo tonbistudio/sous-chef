@@ -24,7 +24,7 @@ import { brollBriefing, brollThumb, cancelBroll, checkStudio, listBroll, onBroll
 import { addReference, listReferences, referenceFrame, referencesBriefing, referenceThumb, removeReference, updateReference } from "./references.js";
 import { frameOf, listTemplates, overlayKey, renderOverlay, renderedOverlays, staleOverlays } from "./overlays.js";
 import { Jobs, type Job } from "./jobs.js";
-import { addThumbnail, clockLabel, descriptionTemplate, readPublish, readPublishSettings, removeThumbnail, saveThumbnailBytes, thumbnailPath, timedOutline, writePublish, writePublishSettings } from "./publish.js";
+import { addThumbnail, addThumbRef, clockLabel, descriptionTemplate, readPublish, readPublishSettings, removeThumbnail, removeThumbRef, saveThumbnailBytes, thumbnailPath, thumbRefPath, timedOutline, writePublish, writePublishSettings } from "./publish.js";
 import { cutSuggestions, dropProposal, getProposal, listProposals, saveProposal, summarize, usableOps, zoomSuggestions } from "./proposals.js";
 import { missingFor, prepareMedia, preparedState, proxyPath, thumbsPath, wavePath } from "./prepare.js";
 import { listTranscripts, readTranscript, sidecarPython, transcribeMedia } from "./transcribe.js";
@@ -1047,7 +1047,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         const bad = (err: unknown) => new HttpError(400, err instanceof Error ? err.message : String(err), "invalid");
         if (!rest[1] && method === "GET") {
           const markers = [...p.project.markers].sort((a, b) => a.timeUs - b.timeUs).map((m) => ({ at: clockLabel(m.timeUs), timeUs: m.timeUs, label: m.label ?? "" }));
-          return sendJson(res, 200, { ...(await readPublish(p.dir)), lengthUs: p.plan.durationUs, markers });
+          return sendJson(res, 200, { ...(await readPublish(p.dir)), lengthUs: p.plan.durationUs, markers, referencesDir: path.join(p.dir, "publish", "references").replace(/\\/g, "/") });
         }
         if (!rest[1] && method === "POST") {
           try {
@@ -1071,11 +1071,49 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             descriptionTemplateFrom: tpl.from || "none",
             thumbnailStyle: s.thumbnailStyle || "(none saved)",
             thumbnailReferences: s.thumbnailRefs,
+            thisVideo: {
+              title: data.title,
+              instructions: data.thumbInstructions || "(none)",
+              referencePictures: data.thumbRefs.map((r) => ({
+                path: path.join(p.dir, "publish", "references", r.file).replace(/\\/g, "/"),
+                use: r.use === "include" ? "include it in the thumbnail as it is (cut out and placed, not redrawn)" : "theme: borrow its look (colours, mood, style, composition); do not copy it",
+              })),
+            },
             channelName: s.channelName,
             current: { title: data.title, titles: data.titles, description: data.description, thumbnails: data.thumbnails.map((t) => ({ ...t, path: path.join(p.dir, "publish", "thumbnails", t.file).replace(/\\/g, "/") })), chosen: data.chosen ?? null },
             markers,
             outline: outline || "(no transcript yet)",
           });
+        }
+        if (rest[1] === "references" && !rest[2] && method === "POST") {
+          // A reference picture for this video's thumbnail, sent as the raw file.
+          const type = String(req.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
+          const ext = ({ "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" } as Record<string, string>)[type];
+          if (!ext) throw new HttpError(415, "Only PNG, JPEG or WebP pictures can be references", "invalid");
+          const chunks: Buffer[] = [];
+          let size = 0;
+          for await (const chunk of req) {
+            size += (chunk as Buffer).length;
+            if (size > 25 * 1024 * 1024) throw new HttpError(413, "That picture is too big (over 25 MB)", "invalid");
+            chunks.push(chunk as Buffer);
+          }
+          try {
+            return changed((await addThumbRef(p.dir, Buffer.concat(chunks), ext)).data);
+          } catch (err) {
+            throw bad(err);
+          }
+        }
+        if (rest[1] === "references" && rest[2] && rest[3] === "delete" && method === "POST") {
+          try {
+            return changed(await removeThumbRef(p.dir, decodeURIComponent(rest[2])));
+          } catch (err) {
+            throw bad(err);
+          }
+        }
+        if (rest[1] === "references" && rest[2] && (method === "GET" || method === "HEAD")) {
+          const file = thumbRefPath(p.dir, decodeURIComponent(rest[2]));
+          if (!file) throw new HttpError(404, "No such reference", "not_found");
+          return sendFile(req, res, file);
         }
         if (rest[1] === "thumbnails" && !rest[2] && method === "POST") {
           const body = await readJson(req);
