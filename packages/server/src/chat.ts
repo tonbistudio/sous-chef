@@ -185,6 +185,8 @@ export class Chats {
     let failure = "";
     let stderr = "";
     let lastTold = 0;
+    // Text comes as pieces of one message; a tool call in between starts a new paragraph.
+    let toolSince = false;
     const tell = () => {
       if (Date.now() - lastTold < 250) return;
       lastTold = Date.now();
@@ -204,13 +206,16 @@ export class Chats {
           continue;
         }
         if (ev.type === "text" && typeof ev.text === "string") {
-          reply += (reply && !reply.endsWith("\n") ? "\n\n" : "") + ev.text;
+          if (toolSince && reply.trim()) reply = reply.replace(/\s*$/, "") + "\n\n" + ev.text.replace(/^\s+/, "");
+          else reply += ev.text;
+          toolSince = false;
           t.activity = "Writing";
         } else if (ev.type === "result") {
           if (typeof ev.session_id === "string" && ev.session_id) t.sessionId = ev.session_id;
           if (typeof ev.text === "string" && ev.text.trim()) reply = ev.text;
           if (typeof ev.error === "string" && ev.error) failure = ev.error;
         } else if (ev.type !== "system") {
+          toolSince = true;
           const name = [ev.name, ev.tool, ev.tool_name, (ev.tool_call as { name?: unknown } | undefined)?.name].find((x) => typeof x === "string") as string | undefined;
           t.activity = name ? `Using ${name.replace(/^mcp__?/, "").replace(/__/g, " › ").replace(/_/g, " ")}` : "Working";
         }
