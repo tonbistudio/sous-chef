@@ -15,9 +15,9 @@ const ASK_DESCRIPTION =
 /** The one-click thumbnail request: my template, this video's title, my instructions and my pictures. */
 function thumbnailPrompt(title: string, instructions: string, refs: { path: string; use: ThumbRef["use"] }[]): string {
   const lines = [
-    "Make 3 thumbnail options for this video.",
+    "Make ONE thumbnail for this video (just one image, not options).",
     "1. Template: read the publish brief first (publish tool, action brief) and follow my thumbnail template from the Library (thumbnailStyle and its reference pictures).",
-    title.trim() ? `2. Title: "${title.trim()}". The thumbnail goes with this title: complement it, don't just repeat it word for word.` : "2. Title: none yet; work from what the video is about.",
+    title.trim() ? `2. Title: the text on the thumbnail is exactly "${title.trim()}", word for word and letter for letter (same words, spelling, punctuation and capitals). Do not shorten, reword, add to or translate it, and check the finished image shows it exactly.` : "2. Title: none yet; work from what the video is about.",
     instructions.trim() ? `3. My instructions for this one:\n${instructions.trim()}` : "3. No extra instructions for this one.",
   ];
   if (refs.length) {
@@ -28,7 +28,7 @@ function thumbnailPrompt(title: string, instructions: string, refs: { path: stri
         : `- ${r.path}: THEME: borrow its look (colours, mood, style, composition). Don't copy it.`);
     }
   } else lines.push("4. No reference pictures for this one.");
-  lines.push("Grab a frame from the edit if a screenshot helps. Add each finished image with the publish tool (action add_thumbnail) and a one-line note on what is different about it.");
+  lines.push("Grab a frame from the edit if a screenshot helps. Add the finished image with the publish tool (action add_thumbnail) with a one-line note.");
   return lines.join("\n");
 }
 
@@ -308,7 +308,7 @@ function ThumbBrief({ editor, data, title, onChange }: { editor: Editor; data: P
         <div className="tb-body">
           <strong>Instructions</strong>
           <textarea
-            rows={3} value={text} placeholder="What should be on it? e.g. my face on the left, the plugin logo big on the right, two or three words of text"
+            rows={3} value={text} placeholder="What should be on it? e.g. my face on the left, the plugin logo big on the right"
             onChange={(e) => { typed.current = true; setText(e.target.value); }}
             onBlur={() => void saveText().catch(fail)}
             onKeyDown={(e) => e.stopPropagation()}
@@ -318,7 +318,7 @@ function ThumbBrief({ editor, data, title, onChange }: { editor: Editor; data: P
       <button className="primary tb-go" onClick={() => void make()} disabled={editor.chat.running || busy > 0}>
         {editor.chat.running ? "Hermes is busy…" : "Make thumbnails"}
       </button>
-      <span className="dim small">Hermes uses your thumbnail template from the Library, the title, these instructions and photos, and adds 3 options below.</span>
+      <span className="dim small">Hermes uses your thumbnail template from the Library, the title, these instructions and photos, puts your exact title on it, and adds one thumbnail below.</span>
     </div>
   );
 }
