@@ -1,7 +1,7 @@
 ---
 name: video-editing
-description: "Edit video in Sous Chef: read a project, cut, trim, split, reorder and restore clips, add zooms, look at frames, and undo. Use when the user asks to edit, trim, cut, tighten, zoom or review a video or take in Sous Chef."
-version: 0.1.0
+description: "Edit video in Sous Chef: cut by the words, rough cuts, voiceovers, zooms, graphics, B-roll, thumbnails, titles and export. Use when the user asks to edit, cut, tighten, zoom, review or publish a video in Sous Chef."
+version: 0.2.0
 license: MIT
 metadata:
   tags: "video, editing, sous-chef, timeline, youtube"
@@ -9,9 +9,9 @@ metadata:
 
 # Editing video in Sous Chef
 
-Sous Chef is a local video editor. You edit through seven tools
+Sous Chef is a local video editor. You work through nine tools
 (`mcp__sous_chef__project`, `transcript`, `edit_apply`, `suggest`, `frame_get`,
-`history`, `render`). The user
+`history`, `render`, `library`, `publish`). The user
 watches the same project in the editor window, and your edits appear there
 immediately, labelled as yours.
 
@@ -55,7 +55,16 @@ to find a phrase the user quotes. If there is no transcript yet, call
 "take out the dead air", call `suggest` with `action: "rough_cut"`. It works
 out silences, filler words, repeated takes and zooms, and shows them to the
 user as one suggestion with tick boxes. It needs a transcript first. Report the
-summary and that it is waiting for them; do not accept it for them.
+summary and that it is waiting for them; do not accept it for them: what they
+tick and untick is how Sous Chef learns their taste.
+
+**The owner's cut lessons.** Load the skill `sous-chef-cut-lessons` (skill_view)
+before any cutting if it exists. It is written from the owner's own edits: the
+cuts they put back after a rough cut, the suggestions they turned down and the
+cuts they added. Follow it over the general rules here. It grows when the owner
+presses Teach Hermes in the transcript panel; you are then sent reports to read
+and asked to update it with skill_manage (short rules, real quoted examples,
+how often seen; leave content changes out).
 
 **Zooms.** For "add zooms" / "auto zoom", call `suggest` `rough_cut` with
 `cuts: false`: it proposes zooms only (about one per 45 s at most), where the
@@ -144,6 +153,10 @@ whoever made it, so check the returned summary is the step you meant.
 ## Voiceover
 
 - Voiceover clips sit on audio tracks and have their own transcripts. Captions follow the voiceover wherever it speaks, and a muted clip gets no captions.
+- Voiceover words are in `transcript` `read` with the main track's, with their pauses, and are cut the same way (`words.remove`, or `range.remove` on the voiceover clip). The rough cut finds their fillers, pauses and flubs too.
+- Move a voiceover to another lane of its kind with `{op:'clip.move', clipId, trackId, startUs}`; a lane left empty goes away. Prefer the first lane with room so the timeline stays tidy.
+- Split any clip with `clip.split`; voiceovers and music split like video.
+- A voiceover can be locked to the picture: `{op:'clip.set', clipId, linked:true}`. It then keeps its place against the screen recording under its start (that clip, even when the same footage is on the timeline twice) when footage before it is added, cut or moved. `linked:false` lets it go. Recordings made over footage start locked. Moving a locked clip locks it to where it lands.
 
 ## Reading the timeline
 
@@ -174,5 +187,13 @@ whoever made it, so check the returned summary is the step you meant.
 - Always start with `publish` `brief`. It has the owner's description template (follow it exactly; if it points to a file it was read fresh), thumbnail style and reference pictures, the finished length, named markers, and a timed outline. Outline times are in the finished video, after cuts and speed: use them for chapters as they are, never raw take times.
 - If the owner has their own description or thumbnail skills, load and follow them as well; the brief's template wins where they differ only if the owner says so.
 - Save with `publish` `set` (`title`, `titles` with 3-5 options, `description`). Do not paste the whole description into chat; say it is in the Publish view.
-- Thumbnails: make the image with your image tools and save it in the project's `publish/thumbnails/` folder (it shows in the Publish view on its own), or `add_thumbnail` with the absolute path and a one-line note on what makes this option different. `grab_frame` gives a real screenshot from the edit to build on. Several options are better than one; the owner picks.
+- Thumbnails: the brief's `thisVideo` holds the owner's title, instructions and reference pictures for this video's thumbnail. Each picture says how to use it: theme (borrow its look, do not copy it) or include (put it in as it is, cut out or placed, not redrawn). Look at each with your vision tool first.
+- Make one thumbnail unless asked for more. Put the owner's title on it exactly, word for word and letter for letter (same spelling, punctuation and capitals), and check the finished image shows it exactly before saving.
+- Make the image with your image tools and save it in the project's `publish/thumbnails/` folder (it shows in the Publish view on its own), or `add_thumbnail` with the absolute path and a one-line note. `grab_frame` gives a real screenshot from the edit to build on.
+
+## B-roll
+
+- The Library keeps B-roll: pictures and short clips made for the owner's videos. `library` `broll_list` shows them with their status and file path.
+- `broll_make` starts one at default settings: `engine` `local` (Imagination Studio on the owner's machine: free, a few minutes) or `cloud` (your own image and video tools, using the provider's credits), `kind` `image` or `video`, and a `prompt` describing the shot. It returns at once; check `broll_list` until it is `done`. Ask which engine if the owner has not said; finer settings are for the Imagination Studio plugin.
+- To put one in the edit: `edit_apply` with `media.add {path}`, then `clip.add` on a video track (`track.add kind video` first if there is none) at the timeline time where the words talk about it, about 5 s for a picture.
 - An empty project is fine: the timeline can start with text, graphics or pictures, and media can be dragged in later.

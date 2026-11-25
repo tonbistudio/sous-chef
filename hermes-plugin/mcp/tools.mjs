@@ -403,12 +403,16 @@ var TOOLS = [
   },
   {
     name: "library",
-    description: "Sous Chef: what carries over between projects. memory_read / memory_write: your editor memory, a short markdown note of how the owner edits (style, usual structure, recurring elements, corrections they made to your work); rewrite it whole with memory_write when you learn something durable, keep it under about 60 lines, and never put secrets in it. templates_list / template_get: reusable timeline pieces (intro, outro, lower third, picture-in-picture layout) saved from earlier projects. template_save saves a stretch of a project's open timeline (from_us to to_us, timeline time) as a template with a name and a one-line description of when to use it. template_insert drops a template into a project at at_us as one undo step: text, graphics, pictures and sound sit on top without moving anything; a template with main-track clips (an intro video) makes room by moving later content right. template_delete removes one. project_note: one line about what this project is and what was done, shown to you in later projects. preferences_set: new_project_speed is the speed new projects start at. References: videos the owner points you at (their past videos, or other creators' to learn from), kept by path only and never copied; they are local files you may also read directly with your own tools (ffmpeg, transcription), read-only. references_list shows them with their notes; reference_add adds one by full path with a note on what it's a reference for; reference_frames shows you frames of one (reference_id, then at_us times in the reference, or count for evenly spaced frames, default 6, at most 12) so you can study its pacing, framing, graphics or captions; reference_remove forgets one (the file is left alone). " + TIME_NOTE,
+    description: "Sous Chef: what carries over between projects. memory_read / memory_write: your editor memory, a short markdown note of how the owner edits (style, usual structure, recurring elements, corrections they made to your work); rewrite it whole with memory_write when you learn something durable, keep it under about 60 lines, and never put secrets in it. templates_list / template_get: reusable timeline pieces (intro, outro, lower third, picture-in-picture layout) saved from earlier projects. template_save saves a stretch of a project's open timeline (from_us to to_us, timeline time) as a template with a name and a one-line description of when to use it. template_insert drops a template into a project at at_us as one undo step: text, graphics, pictures and sound sit on top without moving anything; a template with main-track clips (an intro video) makes room by moving later content right. template_delete removes one. project_note: one line about what this project is and what was done, shown to you in later projects. preferences_set: new_project_speed is the speed new projects start at. References: videos the owner points you at (their past videos, or other creators' to learn from), kept by path only and never copied; they are local files you may also read directly with your own tools (ffmpeg, transcription), read-only. references_list shows them with their notes; reference_add adds one by full path with a note on what it's a reference for; reference_frames shows you frames of one (reference_id, then at_us times in the reference, or count for evenly spaced frames, default 6, at most 12) so you can study its pacing, framing, graphics or captions; reference_remove forgets one (the file is left alone). B-roll: pictures and short clips made for the owner's videos, kept in the Library. broll_list shows them (id, status working/done/failed, prompt, and the finished file's path). broll_make starts one at default settings: engine local (Imagination Studio on the owner's machine: free, a few minutes) or cloud (your own image and video tools, using the provider's credits), kind image or video, and a prompt describing the shot; it returns at once with status working, so check broll_list until it is done. broll_cancel stops one being made; broll_delete removes one. To put a finished one in a video, use edit_apply: media.add with its path, then clip.add on a video track (track.add kind video first if there is none) at the timeline time, for about 5 s for a picture. " + TIME_NOTE,
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["memory_read", "memory_write", "templates_list", "template_get", "template_save", "template_insert", "template_delete", "project_note", "preferences_get", "preferences_set", "references_list", "reference_add", "reference_frames", "reference_remove"] },
+        action: { type: "string", enum: ["memory_read", "memory_write", "templates_list", "template_get", "template_save", "template_insert", "template_delete", "project_note", "preferences_get", "preferences_set", "references_list", "reference_add", "reference_frames", "reference_remove", "broll_list", "broll_make", "broll_cancel", "broll_delete"] },
         reference_id: { type: "string", description: "reference_frames, reference_remove." },
+        broll_id: { type: "string", description: "broll_cancel, broll_delete." },
+        engine: { type: "string", enum: ["local", "cloud"], description: "broll_make: local (Imagination Studio) or cloud (your image and video tools)." },
+        kind: { type: "string", enum: ["image", "video"], description: "broll_make." },
+        prompt: { type: "string", description: "broll_make: what the shot shows." },
         path: { type: "string", description: "reference_add: full path of the video file." },
         times_us: { type: "array", items: { type: "integer" }, description: "reference_frames: times in the reference video." },
         count: { type: "integer", description: "reference_frames: evenly spaced frames when no times are given (default 6, max 12)." },
@@ -737,6 +741,19 @@ async function callTool(api, name, args) {
         throw new Error("text is required");
       await api.post("/api/library/memory", { text: args.text });
       return text("Saved the editor memory.");
+    }
+    if (a === "broll_list")
+      return text((await api.get("/api/library/broll")).items);
+    if (a === "broll_make") {
+      if (typeof args.prompt !== "string" || !args.prompt.trim())
+        throw new Error("prompt is required for broll_make");
+      return text(await api.post("/api/library/broll", { engine: args.engine === "local" ? "local" : "cloud", kind: args.kind === "video" ? "video" : "image", prompt: args.prompt }));
+    }
+    if (a === "broll_cancel" || a === "broll_delete") {
+      const id = String(args.broll_id ?? "");
+      if (!id)
+        throw new Error("broll_id is required");
+      return text(await api.post(`/api/library/broll/${encodeURIComponent(id)}/${a === "broll_cancel" ? "cancel" : "delete"}`, {}));
     }
     if (a === "references_list")
       return text((await api.get("/api/library/references")).references);

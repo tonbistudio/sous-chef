@@ -21,7 +21,10 @@ work but are less tested.
   stay visible (struck through) so you can restore them.
 - **Rough cut.** Finds flubbed lines (a line said, fumbled, then said again) by having
   the agent read the transcript, plus filler words and silences over 1.5 s. Every
-  suggestion is a proposal you accept or reject.
+  suggestion is a proposal you accept or reject. Voiceovers are cut the same way.
+- **Learns your cuts.** After you finish a rough cut your way, **Teach Hermes** compares
+  it with what Hermes suggested (cuts you put back, suggestions you turned down, cuts you
+  added) and writes the patterns into a Hermes skill that later rough cuts follow.
 - **Timeline.** Free-placement main track with gaps, snapping with a guide line,
   extra video and audio tracks, picture-in-picture, move/resize/crop on the preview,
   fades, speed (project-wide or per clip), markers, several timelines as tabs that
@@ -30,13 +33,16 @@ work but are less tested.
 - **Captions** (burned in or SRT), text, and HTML motion graphics rendered with
   [HyperFrames](https://www.npmjs.com/package/hyperframes).
 - **Voiceover** recording at the playhead, with a noise reduction / compressor / EQ
-  chain applied afterwards (the untouched recording is kept).
+  chain applied afterwards (the untouched recording is kept). Voiceovers split, move
+  between lanes, and can be locked to the footage under them so they stay in sync when
+  you add or cut footage before them.
 - **Export** with ffmpeg (NVENC when available), whole timeline or a range.
 - **Agent chat** inside the editor, with pasted pictures, and a **Library** shared
   across projects: templates of timeline pieces, the agent's notes on how you edit,
   and a project log.
-- **Publish view**: thumbnail options with a YouTube feed preview, title options and
-  a description, written by the agent from your own description template.
+- **Publish view**: a thumbnail made in one click from your title, instructions and
+  reference photos (each used for its look or placed as it is), with a YouTube feed
+  preview, plus title options and a description written from your own template.
 - **Agents on other computers.** A Hermes on a VPS, a Spark or in the cloud can edit
   your projects through a tunnel, with a revocable key per agent; the chat panel can
   talk to it too. See [docs/remote-agents.md](docs/remote-agents.md).
@@ -92,7 +98,8 @@ then enable it:
 hermes plugins enable sous-chef
 ```
 
-This adds the `sous_chef` tools and the `sous-chef:video-editing` skill.
+This adds the `sous_chef` tools (project, transcript, edit_apply, suggest, frame_get,
+history, render, library, publish) and the `sous-chef:video-editing` skill.
 Rebuild (`npm run build`) after changing the tools; a running Hermes picks up the
 new tool list on its own.
 
