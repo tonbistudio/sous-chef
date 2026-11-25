@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "sous-chef",
   "version": "1.0.0",
-  "description": "Sous Chef inside Hermes: a video editor: the editor as a page, sharing one local edit server with the Sous Chef desktop app.",
+  "description": "Edit your videos with Hermes in Sous Chef, a local video editor: editing tools, a video-editing skill, and the editor as a page in the desktop app.",
   "author": {
     "name": "Sous Chef contributors"
   },
