@@ -101,6 +101,7 @@ function fanOutQuestion(files: string[]): string {
       ? `Read them in parallel: call delegate_task ONCE with ${files.length} tasks, one per part. Give each subagent the instructions below and its file path, and tell it to read the file with read_file and reply with only the JSON array. Then merge their arrays (drop exact duplicates from where parts overlap).`
       : "Read the file with read_file and apply the instructions below yourself.",
     "Earlier rough cuts in this session were of an older version of the edit: their word numbers no longer apply, so do not reuse them.",
+    `First load your skill "sous-chef-cut-lessons" with skill_view if it exists: it holds what the owner taught you about how they want cuts. Follow it, and pass its lessons on to every subagent along with the instructions. If it does not exist, carry on without it.`,
     "",
     "Instructions:",
     INSTRUCTIONS.replace("Below is its transcript.", "The transcript is in the file.").replace("Do not use any tools. ", "Use no tools other than reading the file. ").replace(/\n*Transcript:\n*$/, ""),

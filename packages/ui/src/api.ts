@@ -309,6 +309,7 @@ export const api = {
   hermesProfiles: () => call<{ profiles: string[]; current: string }>("GET", "/api/hermes/profiles"),
   setHermesProfile: (name: string) => call<{ hermesProfile: string }>("POST", "/api/preferences", { hermesProfile: name }),
   newProject: (name: string, folder?: string) => call<{ projectId: string; path: string }>("POST", "/api/projects/new", { name, ...(folder ? { folder } : {}) }),
+  learn: (pid: string) => call<{ reports: { name: string; path: string; findings: number; roughCuts: number }[]; prompt: string | null; message?: string }>("POST", `/api/p/${pid}/learning`, {}),
   publish: (pid: string) => call<PublishState>("GET", `/api/p/${pid}/publish`),
   savePublish: (pid: string, patch: Partial<Pick<PublishState, "title" | "titles" | "description" | "chosen" | "thumbInstructions" | "thumbRefs">>) => call<PublishState>("POST", `/api/p/${pid}/publish`, patch),
   addThumbnail: (pid: string, path: string) => call<PublishState>("POST", `/api/p/${pid}/publish/thumbnails`, { path, choose: true }),

@@ -1,5 +1,7 @@
 import { itemAt, pacing, proposedRanges, removeItemsOps, restoreItemsOps, searchSequence, sourceToTimeline, timelineToSource, type SeqItem } from "@sous-chef/core";
 import { ProposalBar } from "./ProposalBar";
+import { api } from "./api";
+import { askHermes } from "./Publish";
 import { PacingPanel, type PaceChoice } from "./Pacing";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { baseName, clock } from "./time";
@@ -268,6 +270,13 @@ export function Transcript({ editor }: { editor: Editor }) {
           title="Suggest cuts for flubbed lines (the first try of a line you said again), filler words and long silences, and zooms. Hermes reads the transcript, so it takes a minute. Nothing changes until you accept."
         >
           Rough cut
+        </button>
+        <button
+          onClick={() => void api.learn(editor.pid).then((r) => (r.prompt ? askHermes(editor, r.prompt) : editor.notify(r.message ?? "Nothing to learn yet"))).catch((e) => editor.notify(e instanceof Error ? e.message : String(e), "error"))}
+          disabled={editor.chat.running}
+          title="When you have finished an edit: Hermes compares its rough cut with what you changed (cuts you put back, suggestions you said no to, cuts you added) and writes what it learns into its skill for your cuts, so the next rough cut is closer. Also learns from your other projects it has not learned from yet."
+        >
+          Teach Hermes
         </button>
       </div>
       {pace && <PacingPanel editor={editor} pace={pace} choice={paceChoice} setChoice={setPaceChoice} />}

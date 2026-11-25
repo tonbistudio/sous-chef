@@ -25,6 +25,7 @@ import { addReference, listReferences, referenceFrame, referencesBriefing, refer
 import { frameOf, listTemplates, overlayKey, renderOverlay, renderedOverlays, staleOverlays } from "./overlays.js";
 import { Jobs, type Job } from "./jobs.js";
 import { addThumbnail, addThumbRef, clockLabel, descriptionTemplate, readPublish, readPublishSettings, removeThumbnail, removeThumbRef, saveThumbnailBytes, thumbnailPath, thumbRefPath, timedOutline, writePublish, writePublishSettings } from "./publish.js";
+import { answerRoughCut, readHistoryFile, recordRoughCut, teachPrompt, writeLessonReport } from "./lessons.js";
 import { cutSuggestions, dropProposal, getProposal, listProposals, saveProposal, summarize, usableOps, zoomSuggestions } from "./proposals.js";
 import { missingFor, prepareMedia, preparedState, proxyPath, thumbsPath, wavePath } from "./prepare.js";
 import { listTranscripts, readTranscript, sidecarPython, transcribeMedia } from "./transcribe.js";
@@ -763,6 +764,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         const proposal = await getProposal(p.dir, rest[1]);
         if (!proposal) throw new HttpError(404, "No such proposal", "not_found");
         if (rest[2] === "reject") {
+          await answerRoughCut(p.dir, proposal.id, "rejected").catch(() => undefined);
           await dropProposal(p.dir, proposal.id);
           broadcast({ type: "proposals", projectId: p.id });
           return sendJson(res, 200, { rejected: true });
@@ -770,6 +772,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         if (rest[2] === "accept") {
           const body = await readJson(req).catch(() => ({}) as Record<string, unknown>);
           const { ops, used, skipped } = usableOps(p.project, proposal, Array.isArray(body.itemIds) ? (body.itemIds as string[]) : null);
+          await answerRoughCut(p.dir, proposal.id, { accepted: Array.isArray(body.itemIds) ? (body.itemIds as string[]).map(String) : null }).catch(() => undefined);
           let result: unknown = null;
           if (ops.length) {
             await p.snapshot("before-accept").catch(() => undefined);
@@ -821,12 +824,58 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           const items = [...cuts, ...zooms];
           if (!items.length) return { proposal: null, summary: wantCuts ? "Nothing to suggest" : "No good places to zoom found" };
           // One of each at a time: a new one replaces an older one nobody answered.
-          for (const old of await listProposals(p.dir)) if (old.summary.startsWith(title)) await dropProposal(p.dir, old.id);
+          for (const old of await listProposals(p.dir)) {
+            if (!old.summary.startsWith(title)) continue;
+            await answerRoughCut(p.dir, old.id, "replaced").catch(() => undefined);
+            await dropProposal(p.dir, old.id);
+          }
           const proposal = await saveProposal(p.dir, { by: body.by === "agent" ? "agent" : "user", summary: `${title}: ${summarize(items)}`, baseRevision: project.revision, items });
+          // Kept as offered, so how the owner finishes it can be learned from later.
+          if (wantCuts) await recordRoughCut(p.dir, project, proposal).catch(() => undefined);
           broadcast({ type: "proposals", projectId: p.id });
           return { proposal: proposal.id, summary: proposal.summary, items: items.length, ...(readByHermes ? {} : { note: "Hermes could not be reached, so reworded retakes were not looked for." }) };
         });
         return sendJson(res, 200, { job });
+      }
+      if (what === "learning" && !rest[1] && method === "POST") {
+        // Teach Hermes from how rough cuts were finished: this project, and others not learned from yet.
+        const reports: { name: string; path: string; findings: number; roughCuts: number }[] = [];
+        const transcripts: Transcripts = {};
+        for (const id of await listTranscripts(p.dir)) transcripts[id] = await readTranscript(p.dir, id);
+        const here = await writeLessonReport(p.dir, p.project, transcripts, await readHistoryFile(p.dir));
+        const name = (d: string) => path.basename(d).replace(/\.(sous|aigedit|cutroom)$/i, "");
+        const { createHash } = await import("node:crypto");
+        const { readFile: readText } = await import("node:fs/promises");
+        const hash = (s: string) => createHash("sha1").update(s).digest("hex");
+        const taughtFile = path.join(p.dir, "learning", "taught.json");
+        const before = await readText(taughtFile, "utf8").then((t) => (JSON.parse(t) as { hash?: string }).hash).catch(() => undefined);
+        // This project again only if the edit has changed since Hermes last learned from it.
+        if (here.roughCuts && before !== hash(here.markdown)) reports.push({ name: name(p.dir), path: here.path, findings: here.findings, roughCuts: here.roughCuts });
+        for (const e of (await readProjectLog()).slice(0, 60)) {
+          if (reports.length >= 9) break;
+          const dir = e.path;
+          if (path.resolve(dir).toLowerCase() === path.resolve(p.dir).toLowerCase() || existsSync(path.join(dir, "learning", "taught.json"))) continue;
+          try {
+            const { readFile } = await import("node:fs/promises");
+            const project = fillSettings(JSON.parse(await readFile(path.join(dir, "project.json"), "utf8")));
+            const ts: Transcripts = {};
+            for (const id of await listTranscripts(dir)) ts[id] = await readTranscript(dir, id);
+            const r = await writeLessonReport(dir, project, ts, await readHistoryFile(dir));
+            if (r.roughCuts && r.findings) reports.push({ name: name(dir), path: r.path, findings: r.findings, roughCuts: r.roughCuts });
+          } catch {
+            /* a project that will not read is left out */
+          }
+        }
+        const useful = reports.filter((r) => r.findings > 0);
+        if (!useful.length) {
+          return sendJson(res, 200, { reports, prompt: null, message: reports.length ? "Nothing to learn yet: the rough cuts were finished as Hermes suggested." : here.roughCuts ? "Hermes already learned from this edit. Change more, or teach again after the next rough cut." : "Nothing to learn yet: do a rough cut, answer it, and finish the edit first." });
+        }
+        const { writeFile } = await import("node:fs/promises");
+        for (const r of useful) {
+          const md = await readText(r.path, "utf8").catch(() => "");
+          await writeFile(path.join(path.dirname(r.path), "taught.json"), JSON.stringify({ at: new Date().toISOString(), findings: r.findings, hash: hash(md) }), "utf8").catch(() => undefined);
+        }
+        return sendJson(res, 200, { reports: useful, prompt: teachPrompt(useful) });
       }
       if (what === "activity" && rest[1] && method === "GET") {
         const media = p.project.media.find((m) => m.id === rest[1]);
@@ -932,7 +981,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             (body.selected ? `; selected: ${say(body.selected, 120)}` : "") +
             (body.marks ? `; the user marked up the frame (the attached picture shows the preview with their drawing on it; positions are fractions of the frame, 0,0 top-left): ${say(body.marks, 1200)}` : "") +
             `; tracks: ${p.project.tracks.map((t) => `${say(t.name, 30)} (${t.kind}, ${t.items.length} item${t.items.length === 1 ? "" : "s"})`).join(", ")}` +
-            `. The user is typing in the editor's chat tab. Act on this project with the Sous Chef tools (server "sous_chef": project, transcript, edit_apply, suggest, frame_get, history, render, library, publish), reading the project first. Edits appear in the editor at once. Thumbnails you make for this video: save the image files in ${path.join(p.dir, "publish", "thumbnails").replace(/\\/g, "/")}/ (or add them with the publish tool); anything there shows in the editor's Publish view. Reply briefly in plain language.]`,
+            `. The user is typing in the editor's chat tab. Act on this project with the Sous Chef tools (server "sous_chef": project, transcript, edit_apply, suggest, frame_get, history, render, library, publish), reading the project first. Edits appear in the editor at once. Thumbnails you make for this video: save the image files in ${path.join(p.dir, "publish", "thumbnails").replace(/\\/g, "/")}/ (or add them with the publish tool); anything there shows in the editor's Publish view. When cutting this owner's video, follow your skill "sous-chef-cut-lessons" if you have it. Reply briefly in plain language.]`,
         ].join("");
         const images = Array.isArray(body.images) ? body.images.map(String).filter((f: string) => CHAT_IMAGE.test(f) && existsSync(path.join(chatImagesDir(p.dir), f))).slice(0, 8) : [];
         try {
